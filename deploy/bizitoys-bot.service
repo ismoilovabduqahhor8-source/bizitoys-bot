@@ -1,0 +1,38 @@
+# ============================================================
+#  systemd unit — bot 24/7 ishlashi va o'chsa avtomatik qayta
+#  ishga tushishi uchun.
+#
+#  O'rnatish (VPS'da, root sifatida):
+#    sudo cp deploy/bizitoys-bot.service /etc/systemd/system/
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable --now bizitoys-bot
+#    sudo systemctl status bizitoys-bot
+#    journalctl -u bizitoys-bot -f      # loglarni ko'rish
+# ============================================================
+[Unit]
+Description=BiziToys ichki Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bizitoys
+WorkingDirectory=/opt/bizitoys_bot
+EnvironmentFile=/opt/bizitoys_bot/.env
+ExecStart=/opt/bizitoys_bot/.venv/bin/python /opt/bizitoys_bot/main.py
+
+# Uzilib qolsa — 10 soniyadan keyin qayta ishga tushadi
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bizitoys-bot
+
+# Xavfsizlik
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

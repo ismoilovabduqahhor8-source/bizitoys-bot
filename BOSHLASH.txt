@@ -1,0 +1,107 @@
+═══════════════════════════════════════════════════════════════
+  📊 KECHAGI SAVDO HISOBOTI - TAYYOR!
+═══════════════════════════════════════════════════════════════
+
+✅ NIMA QILINDI:
+
+1. Barcha 5 ta do'kon ma'lumotlari ko'rsatiladi
+2. Har bir mahsulot batafsil (nomi, soni, narxi)
+3. Do'konlar bo'yicha jamlar
+4. Excel formatida yuklab olish
+
+───────────────────────────────────────────────────────────────
+
+🚀 ISHGA TUSHIRISH (3 qadam):
+
+1️⃣ KUTUBXONALARNI O'RNATISH:
+   
+   pip install openpyxl pillow
+   
+   (yoki: pip install -r requirements.txt)
+
+2️⃣ BOTNI QAYTA ISHGA TUSHIRISH:
+   
+   Ctrl + C                # to'xtatish
+   python main.py          # qayta ishga tushirish
+
+3️⃣ TEST QILISH:
+   
+   /yesterday              # Telegram'da ko'rish
+   /yesterday_excel        # Excel yuklab olish
+
+───────────────────────────────────────────────────────────────
+
+💬 BUYRUQLAR:
+
+Matn (Telegram):
+  /yesterday                ← kechagi savdo
+  /yesterday 2026-07-22     ← muayyan kun
+
+Excel fayl:
+  /yesterday_excel          ← kechagi savdo
+  /yesterday_excel 2026-07-22  ← muayyan kun
+
+───────────────────────────────────────────────────────────────
+
+⏰ AVTOMATIK:
+
+Har kuni soat 08:00 da avtomatik yuboriladi:
+  ✅ Guruh chatiga
+  ✅ Barcha adminlarga
+  ✅ Barcha 5 ta do'kon
+  ✅ Har bir mahsulot batafsil
+
+───────────────────────────────────────────────────────────────
+
+🔧 SOZLAMALAR (.env fayli):
+
+# Barcha do'konlar (5 ta):
+UZUM_SHOP_IDS=77165,77419,79873,97583,123074
+
+# Yuborish vaqti:
+DAILY_SALES_AT=08:00
+
+───────────────────────────────────────────────────────────────
+
+✨ HISOBOT FORMATI:
+
+Telegram'da:
+  📊 Hisobot: 22 iyul 2026
+  
+  📦 Buyurtmalar: 103
+  📋 Mahsulotlar: 156 dona
+  💰 Jami: 4 523 430 so'm
+  
+  🏪 Do'konlar:
+     • Do'kon 1: X · Y dona · Z so'm
+     • Do'kon 2: ...
+     • Do'kon 3: ...
+     • Do'kon 4: ...
+     • Do'kon 5: ...
+  
+  [Har bir do'konning mahsulotlari batafsil]
+
+Excel'da:
+  ✅ To'liq jadval
+  ✅ Ranglar va formatlash
+  ✅ Har bir mahsulot alohida
+  ✅ Do'konlar bo'yicha guruhlash
+  ✅ Yuklab olish va print qilish oson
+
+───────────────────────────────────────────────────────────────
+
+❓ MUAMMOLAR?
+
+1. "Excel kutubxonasi yo'q" → pip install openpyxl
+2. "Faqat 1 ta do'kon" → .env da UZUM_SHOP_IDS tekshiring
+3. "Hech narsa chiqmadi" → Botni qayta ishga tushiring
+
+───────────────────────────────────────────────────────────────
+
+📚 BATAFSIL HUJJATLAR:
+
+  EXCEL_HISOBOT.md      ← Excel haqida to'liq
+  YESTERDAY_SETUP.md    ← Sozlash yo'riqnomasi
+  YANGILANISH.md        ← Yangi imkoniyatlar
+
+═══════════════════════════════════════════════════════════════

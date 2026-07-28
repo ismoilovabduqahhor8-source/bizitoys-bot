@@ -1,0 +1,63 @@
+═══════════════════════════════════════════════════════════
+  KECHAGI SAVDO HISOBOTI - TEZKOR TEST
+═══════════════════════════════════════════════════════════
+
+🔴 AGAR /yesterday BUYRUG'I ISHLAMASA:
+
+1️⃣ BOTNI QAYTA ISHGA TUSHIRING:
+   
+   Terminalda Ctrl+C bosing (bot to'xtaydi)
+   Keyin: python main.py
+   
+   ⚠️ Bu eng muhim qadam! Yangi kod faqat qayta ishga
+      tushirgandan keyin ishlaydi.
+
+───────────────────────────────────────────────────────────
+
+2️⃣ ADMIN EKANLIGINGIZNI TEKSHIRING:
+
+   Botga yuboring: /employees
+   
+   Natijada o'z ID'ngiz yonida "Admin" deb turishi kerak.
+   
+   Agar yo'q bo'lsa:
+   /add_admin 7155596109 Sizning ismingiz
+
+───────────────────────────────────────────────────────────
+
+3️⃣ BUYRUQNI SINANG:
+
+   /yesterday          ← kechagi savdo
+   
+   Yoki:
+   
+   /yesterday 2026-07-20   ← o'sha kundagi savdo
+
+───────────────────────────────────────────────────────────
+
+✅ KO'RISHINGIZ KERAK BO'LGAN JAVOB:
+
+   💰 22-Jul-2026 - Kunlik savdo hisoboti
+   
+   📦 Jami buyurtmalar: X ta
+   💵 Jami summa: XXX XXX so'm
+   
+   🏪 Do'konlar bo'yicha:
+      ...
+
+───────────────────────────────────────────────────────────
+
+🔧 VAQTNI O'ZGARTIRISH:
+
+   .env faylida:
+   DAILY_SALES_AT=08:00    ← buni o'zgartiring
+   
+   Masalan: 09:00, 07:30, 10:15
+
+───────────────────────────────────────────────────────────
+
+❓ SAVOL: Hali ham ishlamayaptimi?
+
+Bot loglarini ko'ring - terminalda xato xabarlari ko'rinadi.
+
+═══════════════════════════════════════════════════════════
