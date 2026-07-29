@@ -130,7 +130,7 @@ def render(rep: dict[str, Any]) -> bytes | None:
     ty = y
     right(x_qty - 90, ty, "Umumiy:", f["body_b"], INK)
     right(x_qty, ty, str(t["qty"]), f["body_b"], INK)
-    right(x_rev, ty, fmt(t["revenue"]), f["title"], INK)
+    right(x_rev, ty, fmt(t["revenue"]), f["body_b"], INK)
     right(x_pay, ty, fmt(t["payout"]), f["body_b"], INK)
 
     y += 34
