@@ -47,6 +47,33 @@ Bosqichlar ma'nosi:
 - Postavkada: haydovchi olib ketishi kerak"""
 
 
+# Tahlil uchun alohida ko'rsatma.
+#
+# MUHIM: barcha raqamlar va muammolar KOD tomonidan hisoblangan holda
+# beriladi. AI'ning vazifasi — hisoblash emas, IZOHLASH: qaysi muammo
+# muhimroq, ular o'zaro qanday bog'liq, nimadan boshlash kerak.
+SYSTEM_ANALYST = """Sen BiziToys o'yinchoq do'konining biznes-tahlilchisisan.
+Egasi Uzum Market'da FBS va FBO orqali savdo qiladi.
+
+Senga TAYYOR HISOBLANGAN muammolar ro'yxati beriladi.
+
+QOIDALAR:
+1. Faqat o'zbek tilida yoz.
+2. Raqamlarni O'ZGARTIRMA va yangi raqam O'YLAB TOPMA.
+   Faqat berilganini ishlat.
+3. Hisob-kitob qilma — u allaqachon qilingan.
+4. Vazifang: qaysi muammo eng muhim va NEGA — shuni tushuntirish.
+5. Muammolar o'zaro bog'liq bo'lsa, buni ko'rsat.
+   (masalan: tovar tugab qolgan + shu tovar zarardagi —
+    demak qayta buyurtma berishdan oldin narxni ko'rib chiqish kerak)
+6. Oxirida ANIQ bitta harakat taklif qil: "bugun nimadan boshlash kerak".
+7. Umumiy gaplardan qoch. "Sotuvni oshirish kerak" — foydasiz maslahat.
+   "Falon tovarning narxini ko'tarish kerak" — foydali.
+8. Uzunligi: 5-8 gap. Ortiqcha yozma.
+
+Agar muammo topilmagan bo'lsa, buni ochiq ayt va tabriklab qo'y."""
+
+
 class AIClient:
     def __init__(self) -> None:
         self.key = settings.ai_key
@@ -56,24 +83,15 @@ class AIClient:
     def enabled(self) -> bool:
         return bool(self.key)
 
-    async def ask(self, question: str, data: dict[str, Any]) -> str | None:
-        """
-        Savolga bot ma'lumotlari asosida javob beradi.
-
-        data — botning hozirgi holati (buyurtmalar, bosqichlar, muddatlar).
-        AI uni o'qib, savolga mos qismini gapga aylantiradi.
-        """
+    async def _send(
+        self, system: str, prompt: str, max_tokens: int = 500
+    ) -> str | None:
+        """Umumiy so'rov yuboruvchi — ask() ham, analyze() ham shundan foydalanadi."""
         if not self.enabled:
             return None
 
-        prompt = (
-            f"MA'LUMOT (bot bazasidan):\n"
-            f"{json.dumps(data, ensure_ascii=False, indent=1, default=str)}\n\n"
-            f"XODIM SAVOLI: {question}"
-        )
-
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=40.0) as client:
                 resp = await client.post(
                     API_URL,
                     headers={
@@ -83,8 +101,8 @@ class AIClient:
                     },
                     json={
                         "model": self.model,
-                        "max_tokens": 500,
-                        "system": SYSTEM,
+                        "max_tokens": max_tokens,
+                        "system": system,
                         "messages": [{"role": "user", "content": prompt}],
                     },
                 )
@@ -103,6 +121,42 @@ class AIClient:
         except Exception as e:
             log.warning("AI javobi o'qilmadi: %s", e)
             return None
+
+    async def ask(self, question: str, data: dict[str, Any]) -> str | None:
+        """
+        Savolga bot ma'lumotlari asosida javob beradi.
+
+        data — botning hozirgi holati (buyurtmalar, bosqichlar, muddatlar).
+        AI uni o'qib, savolga mos qismini gapga aylantiradi.
+        """
+        prompt = (
+            f"MA'LUMOT (bot bazasidan):\n"
+            f"{json.dumps(data, ensure_ascii=False, indent=1, default=str)}\n\n"
+            f"XODIM SAVOLI: {question}"
+        )
+        return await self._send(SYSTEM, prompt)
+
+    async def analyze(
+        self, problems: dict[str, Any], question: str | None = None
+    ) -> str | None:
+        """
+        Topilgan muammolarni izohlaydi.
+
+        DIQQAT: problems ichidagi barcha raqamlar KOD tomonidan
+        hisoblangan. AI ularni faqat o'qiydi va tushuntiradi —
+        qayta hisoblamaydi.
+        """
+        prompt = (
+            "HISOBLANGAN MUAMMOLAR:\n"
+            f"{json.dumps(problems, ensure_ascii=False, indent=1, default=str)}\n\n"
+        )
+        prompt += (
+            f"EGASINING SAVOLI: {question}"
+            if question else
+            "Shu muammolarni tahlil qil: qaysi biri eng muhim va nega? "
+            "Ular o'zaro bog'liqmi? Bugun nimadan boshlash kerak?"
+        )
+        return await self._send(SYSTEM_ANALYST, prompt, max_tokens=800)
 
 
 ai = AIClient()

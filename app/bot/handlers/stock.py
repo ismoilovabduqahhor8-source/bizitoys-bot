@@ -3,6 +3,8 @@ Ombor va sotuv tahlili buyruqlari (Billz).
 """
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
@@ -15,6 +17,7 @@ from app.integrations.uzum import STATUS_TABS, uzum
 from app.services import stock as stock_service
 
 router = Router(name="stock")
+log = logging.getLogger(__name__)
 
 
 @router.message(Command("stock"))
@@ -270,3 +273,64 @@ async def cb_report_period(callback: CallbackQuery, employee: dict) -> None:
 
     # 2) MATN — Uzum Market uslubidagi batafsil hisobot, pastda
     await callback.message.answer(report.as_full_text(full))
+
+
+@router.message(Command("tahlil"))
+@router.message(F.text == "🔍 Tahlil")
+async def cmd_analysis(message: Message, employee: dict) -> None:
+    """
+    Biznes tahlili — muammolarni topadi va izohlaydi.
+
+    Ikki bosqichda ishlaydi:
+      1. Muammolar ODDIY HISOB bilan topiladi (aniq, bepul)
+      2. AI ularni izohlaydi va maslahat beradi (agar ulangan bo'lsa)
+
+    Bu ajratish muhim: raqamlar har doim to'g'ri bo'ladi, AI esa
+    faqat tushuntirish uchun ishlatiladi.
+    """
+    from app.integrations.ai import ai
+    from app.services import analytics
+
+    # /tahlil 30 — boshqa davr uchun
+    days = 7
+    parts = (message.text or "").split()
+    if len(parts) > 1 and parts[1].isdigit():
+        days = min(int(parts[1]), 90)
+
+    wait = await message.answer(
+        f"🔍 Oxirgi {days} kun tahlil qilinmoqda…\n"
+        "<i>Uzumdan ma'lumot olinmoqda, biroz vaqt oladi</i>"
+    )
+
+    try:
+        res = await analytics.find_problems(days=days)
+    except Exception as e:
+        log.exception("Tahlil xatosi")
+        await wait.edit_text(
+            f"⚠️ Tahlil qilinmadi.\n<code>{type(e).__name__}: {str(e)[:200]}</code>"
+        )
+        return
+
+    await wait.edit_text(analytics.as_text(res))
+
+    # Saqlab qo'yamiz — foydalanuvchi keyin savol bera oladi
+    analytics.remember_analysis(message.from_user.id, res)
+
+    # AI izohi — ixtiyoriy qism
+    if not res["muammolar"]:
+        return
+
+    if not ai.enabled:
+        await message.answer(
+            "<i>💡 AI ulanmagan. Ulansa, bot bu muammolarni izohlab, "
+            "nimadan boshlash kerakligini aytadi.\n"
+            "Buning uchun .env faylida AI_KEY kiritilishi kerak.</i>"
+        )
+        return
+
+    thinking = await message.answer("🤔 Tahlil qilinmoqda…")
+    comment = await ai.analyze(res)
+    if comment:
+        await thinking.edit_text(f"💡 <b>Tahlil</b>\n\n{comment}")
+    else:
+        await thinking.delete()

@@ -65,6 +65,7 @@ async def cmd_help(message: Message, employee: dict | None) -> None:
         "/fbs — <b>asosiy bo'lim</b>: yangilar · yig'ishda · postavkada 📦\n"
         "/orders — buyurtmalar ro'yxati\n"
         "/shosh — muddati kam qolganlar 🔥\n"
+        "/tahlil — muammolarni topish va tahlil 🔍\n"
         "/yorliqlar — hamma buyurtma uchun QR/yorliq 🏷\n"
         "/aktlar — postavka aktlari, mahsulot va PDF 📋\n"
         "/report — qisqa hisobot\n"
@@ -123,13 +124,22 @@ async def free_question(message: Message, employee: dict | None) -> None:
         return
 
     thinking = await message.answer("🤔 O'ylayapman…")
-    try:
-        items = await order_service.orders_for_user(employee)
-    except Exception:
-        items = []
 
-    data = context.build(items, employee)
-    answer = await ai.ask(text, data)
+    # Agar yaqinda /tahlil ishlatilgan bo'lsa — savol o'sha muammolar
+    # haqida bo'lishi ehtimoli katta. Shunda AI ularni eslab turadi va
+    # suhbatni davom ettirish mumkin bo'ladi:
+    #   /tahlil  ->  "eng katta muammo nima?"  ->  "uni qanday hal qilaman?"
+    from app.services.analytics import recall_analysis
+
+    recent = recall_analysis(message.from_user.id)
+    if recent:
+        answer = await ai.analyze(recent, question=text)
+    else:
+        try:
+            items = await order_service.orders_for_user(employee)
+        except Exception:
+            items = []
+        answer = await ai.ask(text, context.build(items, employee))
 
     if answer:
         await thinking.edit_text(answer)
