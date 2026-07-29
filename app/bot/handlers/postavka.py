@@ -92,8 +92,10 @@ async def cb_from_fbs(callback: CallbackQuery, employee: dict) -> None:
 @router.message(Command("postavka"))
 @router.message(F.text == "🚚 Postavka ochish")
 async def cmd_postavka(message: Message, employee: dict) -> None:
-    if employee["role"] != repo.ROLE_ADMIN:
-        await message.answer("Postavkani faqat admin ocha oladi.")
+    # Admin va yig'uvchi ochishi mumkin — yig'uvchi tovarni yig'ib
+    # bo'lgach, o'zi darrov postavka ocha oladi, admin kutish shart emas.
+    if employee["role"] not in (repo.ROLE_ADMIN, repo.ROLE_PICKER):
+        await message.answer("Postavkani faqat admin yoki yig'uvchi ocha oladi.")
         return
 
     wait = await message.answer("⏳ Tayyor buyurtmalar qidirilmoqda…")
@@ -209,8 +211,8 @@ async def _show_points(message: Message, gid: str, shown: list[dict],
 @router.callback_query(F.data.startswith("pv:"))
 async def cb_choose_point(callback: CallbackQuery, employee: dict) -> None:
     """1-qadam: qabul punktini tanlash."""
-    if employee["role"] != repo.ROLE_ADMIN:
-        await callback.answer("Faqat admin", show_alert=True)
+    if employee["role"] not in (repo.ROLE_ADMIN, repo.ROLE_PICKER):
+        await callback.answer("Faqat admin yoki yig'uvchi", show_alert=True)
         return
 
     gid = callback.data.split(":", 1)[1]
@@ -443,8 +445,8 @@ async def cb_cancel(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("pvgo:"))
 async def cb_create(callback: CallbackQuery, employee: dict) -> None:
     """4-qadam: haqiqiy yaratish."""
-    if employee["role"] != repo.ROLE_ADMIN:
-        await callback.answer("Faqat admin", show_alert=True)
+    if employee["role"] not in (repo.ROLE_ADMIN, repo.ROLE_PICKER):
+        await callback.answer("Faqat admin yoki yig'uvchi", show_alert=True)
         return
 
     gid = callback.data.split(":", 1)[1]

@@ -74,6 +74,15 @@ class Settings:
     # ---------- Sun'iy intellekt (ixtiyoriy) ----------
     # console.anthropic.com dan olinadi. Bo'sh qoldirilsa — bot AI'siz ishlaydi.
     ai_key: str = field(default_factory=lambda: _env("AI_KEY"))
+
+    # Qaysi AI provayder ishlatilsin:
+    #   anthropic — to'g'ridan-to'g'ri Anthropic API (tez, kalit kerak)
+    #   make      — Make.com webhook orqali (sekinroq, Make sozlamasi kerak)
+    ai_provider: str = field(
+        default_factory=lambda: (_env("AI_PROVIDER", "anthropic") or "anthropic").lower()
+    )
+    # Make.com stsenariysining webhook manzili
+    make_ai_webhook: str = field(default_factory=lambda: _env("MAKE_AI_WEBHOOK"))
     ai_model: str = field(default_factory=lambda: _env("AI_MODEL", "claude-haiku-4-5-20251001"))
 
     # ---------- Billz API ----------

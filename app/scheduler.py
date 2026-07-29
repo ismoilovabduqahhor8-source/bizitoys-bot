@@ -228,13 +228,21 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         id="sklad_list",
     )
 
-    # --- Kunlik moliyaviy hisobot (adminlarga) ---
+    # --- Kunlik moliyaviy hisobot (adminlarga, kechagi to'liq kun) ---
     rh, rm = _parse_hhmm(settings.money_report_at, (21, 0))
     sched.add_job(
         notif.money_report,
         CronTrigger(hour=rh, minute=rm, timezone=tz),
         args=[bot],
         id="money_report",
+    )
+
+    # --- Soatlik hisobot (adminlarga, 08:00–23:00, har soat) ---
+    sched.add_job(
+        notif.hourly_report,
+        CronTrigger(hour="8-23", minute=0, timezone=tz),
+        args=[bot],
+        id="hourly_report",
     )
 
     # --- Ombor tekshiruvi ---
@@ -252,7 +260,8 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
              settings.nudge_every_min, settings.work_from, settings.work_to)
     log.info("  • muddat tekshiruvi:         har %d daqiqada", settings.late_check_every_min)
     log.info("  • skladga ro'yxat:           %s (shaxsiy chatga)", settings.sklad_list_at)
-    log.info("  • moliyaviy hisobot:         %s (adminlarga)", settings.money_report_at)
+    log.info("  • moliyaviy hisobot:         %s (adminlarga, kechagi kun)", settings.money_report_at)
+    log.info("  • soatlik hisobot:           08:00-23:00, har soat (adminlarga)")
     log.info("  • hisobotlar:                %s va %s",
              settings.morning_report_at, settings.evening_report_at)
     return sched

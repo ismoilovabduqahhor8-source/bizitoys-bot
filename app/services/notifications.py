@@ -300,17 +300,14 @@ async def money_report(bot: Bot) -> None:
     """
     Kunlik moliyaviy hisobot — soat 08:00 da, faqat adminlarga.
 
-    MUHIM: har doim KECHAGI kun uchun hisoblanadi — aniq va qat'iy.
+    MUHIM: har doim KECHAGI kun uchun hisoblanadi — aniq va qat'iy,
+    00:00 dan 23:59 gacha (to'liq, yopilgan kun).
 
     Ilgari bu yerda build_with_fallback() chaqirilardi: u avval
     "bugun"gi ma'lumotni so'raydi, faqat bo'sh bo'lsa kechagiga
     o'tadi. Bu tasodifga tayangan edi — agar soat 8:00 da bugungi
     kun uchun bironta yozuv allaqachon tushib ulgursa, hisobot
     TO'LIQ BO'LMAGAN bugungi ma'lumotni ko'rsatib yuborardi.
-
-    Kunlik hisobot har doim to'liq, yopilgan kun haqida bo'lishi
-    kerak — shuning uchun endi sana ANIQ ko'rsatiladi: bugundan
-    bir kun oldingi (to'liq o'tgan) kun.
 
     Tartib: avval rasm (tovarlar jadvali), keyin Uzum Market
     uslubidagi batafsil matn.
@@ -356,3 +353,57 @@ async def money_report(bot: Bot) -> None:
             log.warning("Hisobot yuborilmadi (%s): %s", uid, e)
 
     log.info("Moliyaviy hisobot %d adminga yuborildi", len(admins))
+
+
+async def hourly_report(bot: Bot) -> None:
+    """
+    Soatlik hisobot — kun bo'yi (08:00–23:00), faqat adminlarga.
+
+    Kunlik hisobotdan farqi: bu KECHAGI emas, BUGUNGI kun uchun,
+    00:00 dan HOZIRGACHA (jamlanib boruvchi). Ya'ni har chaqirilganda
+    "bugun hozirgacha qancha sotildi" ko'rinadi — kun davomida
+    o'sib boradigan jonli holat.
+
+    Ma'lumot bo'lmasa (ertalab hali Uzum to'ldirmagan bo'lsa), jim
+    o'tkazib yuboriladi — bo'sh hisobot yuborish foydasiz.
+    """
+    from aiogram.types import BufferedInputFile
+    from app.services import report, report_image
+
+    admins = [
+        e for e in await repo.list_employees() if e["role"] == repo.ROLE_ADMIN
+    ]
+    if not admins:
+        return
+
+    now = datetime.now(TZ)
+
+    try:
+        rep = await report.build(now)
+        full = await report.build_full(now)
+    except Exception as e:
+        log.warning("Soatlik hisobot tayyorlanmadi: %s", e)
+        return
+
+    if not rep["items"]:
+        log.info("Soatlik hisobot: hali ma'lumot yo'q")
+        return
+
+    img = report_image.render(rep)
+    text = f"🕐 <b>Soatlik holat — {now:%H:%M}</b>\n\n" + report.as_full_text(full)
+
+    for a in admins:
+        uid = a["telegram_id"]
+        try:
+            if img:
+                await bot.send_photo(
+                    uid,
+                    BufferedInputFile(
+                        img, filename=f"soatlik_{now:%Y-%m-%d_%H}.png"
+                    ),
+                )
+            await bot.send_message(uid, text)
+        except Exception as e:
+            log.warning("Soatlik hisobot yuborilmadi (%s): %s", uid, e)
+
+    log.info("Soatlik hisobot %d adminga yuborildi (%s)", len(admins), now.strftime("%H:%M"))

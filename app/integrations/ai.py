@@ -81,15 +81,96 @@ class AIClient:
 
     @property
     def enabled(self) -> bool:
+        """
+        AI ishlashga tayyormi?
+
+        Provayderga qarab turli narsa kerak:
+          anthropic — API kaliti
+          make      — webhook manzili
+        """
+        if settings.ai_provider == "make":
+            return bool(settings.make_ai_webhook)
         return bool(self.key)
 
     async def _send(
         self, system: str, prompt: str, max_tokens: int = 500
     ) -> str | None:
-        """Umumiy so'rov yuboruvchi — ask() ham, analyze() ham shundan foydalanadi."""
+        """
+        Umumiy so'rov yuboruvchi.
+
+        Ikki provayderni qo'llab-quvvatlaydi:
+          anthropic — to'g'ridan-to'g'ri API (tez, bitta qadam)
+          make      — Make.com webhook orqali (sekinroq, lekin Make'dagi
+                      operatsiyalardan foydalanadi)
+
+        Provayder .env dagi AI_PROVIDER bilan tanlanadi. Shuning uchun
+        birini ikkinchisiga almashtirish uchun kodni o'zgartirish
+        shart emas — bitta qator yetarli.
+        """
         if not self.enabled:
             return None
 
+        if settings.ai_provider == "make":
+            return await self._send_via_make(system, prompt)
+        return await self._send_via_anthropic(system, prompt, max_tokens)
+
+    async def _send_via_make(self, system: str, prompt: str) -> str | None:
+        """
+        Make.com webhook orqali yuboradi.
+
+        Make stsenariysi shunday bo'lishi kerak:
+            1. Webhook (Custom webhook)      — so'rovni qabul qiladi
+            2. AI moduli                      — {{1.system}} va {{1.prompt}}
+            3. Webhook response               — javob matnini qaytaradi
+
+        Javob oddiy matn yoki {"text": "..."} ko'rinishida bo'lishi mumkin —
+        ikkalasi ham qo'llab-quvvatlanadi.
+        """
+        url = settings.make_ai_webhook
+        if not url:
+            log.warning("AI_PROVIDER=make, lekin MAKE_AI_WEBHOOK kiritilmagan")
+            return None
+
+        try:
+            # Make sekinroq ishlaydi (webhook -> AI -> javob), shuning
+            # uchun kutish vaqti uzunroq
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    url,
+                    json={"system": system, "prompt": prompt},
+                )
+        except Exception as e:
+            log.warning("Make.com so'rovi yuborilmadi: %s", e)
+            return None
+
+        if resp.status_code != 200:
+            log.warning(
+                "Make.com xatosi: HTTP %s %s", resp.status_code, resp.text[:200]
+            )
+            return None
+
+        text = resp.text.strip()
+        if not text:
+            return None
+
+        # JSON qaytargan bo'lsa, ichidan matnni olamiz
+        try:
+            data = resp.json()
+            if isinstance(data, dict):
+                for key in ("text", "result", "answer", "javob", "content"):
+                    if isinstance(data.get(key), str):
+                        return data[key].strip() or None
+            if isinstance(data, str):
+                return data.strip() or None
+        except Exception:
+            pass
+
+        return text
+
+    async def _send_via_anthropic(
+        self, system: str, prompt: str, max_tokens: int
+    ) -> str | None:
+        """Anthropic API'ga to'g'ridan-to'g'ri so'rov."""
         try:
             async with httpx.AsyncClient(timeout=40.0) as client:
                 resp = await client.post(

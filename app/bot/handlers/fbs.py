@@ -269,11 +269,10 @@ async def _open_invoices(callback: CallbackQuery) -> None:
 
 async def _open_postavka(callback: CallbackQuery, employee: dict) -> None:
     """«🚚 Postavka ochish» — PVZ va vaqt tanlash oqimini boshlaydi."""
-    if employee["role"] != repo.ROLE_ADMIN:
+    if employee["role"] not in (repo.ROLE_ADMIN, repo.ROLE_PICKER):
         await callback.message.answer(
             "🚚 <b>Postavka ochish</b>\n\n"
-            "Buni faqat admin qila oladi.\n"
-            "<i>Yig'ilgani haqida adminga ayting.</i>"
+            "Buni faqat admin yoki yig'uvchi qila oladi."
         )
         return
 

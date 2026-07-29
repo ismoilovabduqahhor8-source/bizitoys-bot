@@ -200,7 +200,12 @@ async def cmd_health(message: Message) -> None:
         lines.append(f"Uzum API: {'✅ ishlayapti' if ok else '❌ xato'}")
 
     from app.integrations.ai import ai
-    lines.append(f"AI: {'✅ yoqilgan (' + settings.ai_model + ')' if ai.enabled else '⬜ o\'chiq'}")
+    if not ai.enabled:
+        lines.append("AI: ⬜ o'chiq")
+    elif settings.ai_provider == "make":
+        lines.append("AI: ✅ yoqilgan (Make.com webhook)")
+    else:
+        lines.append(f"AI: ✅ yoqilgan ({settings.ai_model})")
 
     if settings.billz_mock:
         lines.append("Billz: 🧪 soxta ma'lumot (kalit kiritilmagan)")
