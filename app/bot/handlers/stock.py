@@ -334,3 +334,44 @@ async def cmd_analysis(message: Message, employee: dict) -> None:
         await thinking.edit_text(f"💡 <b>Tahlil</b>\n\n{comment}")
     else:
         await thinking.delete()
+
+
+@router.message(Command("bloklangan"))
+@router.message(F.text == "🚫 Bloklangan")
+async def cmd_blocked(message: Message) -> None:
+    """
+    Uzum tomonidan bloklangan (sotuvga chiqarilmagan) mahsulotlar.
+
+    Bular "yo'qolgan tovar" kabi ko'rinadi: omborda bor, lekin
+    sotilmaydi, chunki Uzum ularni bloklagan (rasm, hujjat,
+    taqiqlangan toifa sababli).
+    """
+    from app.services import analytics
+
+    wait = await message.answer("⏳ Tekshirilmoqda…")
+    try:
+        stats = await uzum.get_product_stats()
+    except ApiError as e:
+        await wait.edit_text(f"⚠️ Ma'lumot olinmadi.\n<code>{e}</code>")
+        return
+
+    found = analytics.find_blocked(stats)
+    if not found:
+        await wait.edit_text("✅ Bloklangan mahsulot yo'q.")
+        return
+
+    lines = [
+        f"🚫 <b>{found['sarlavha']}</b>",
+        f"Jami: <b>{found['jami_dona']}</b> dona sotilmay turibdi",
+        "",
+    ]
+    for r in found["royxat"]:
+        lines.append(f"🔴 <b>{r['tovar']}</b>")
+        lines.append(f"   SKU: <code>{r['sku']}</code> · qoldiq: {r['qoldiq']}")
+        lines.append(f"   Sabab: {r['sabab']}")
+        if r["xabar"]:
+            lines.append(f"   <i>{r['xabar']}</i>")
+        lines.append("")
+
+    lines.append(f"<i>→ {found['tavsiya']}</i>")
+    await wait.edit_text("\n".join(lines))

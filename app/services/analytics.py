@@ -245,6 +245,46 @@ def find_missing_cost(items: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 # ------------------------------------------------------------------
+#  6. BLOKLANGAN (YO'QOLGAN) MAHSULOTLAR
+# ------------------------------------------------------------------
+def find_blocked(stats: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """
+    Uzum tomonidan bloklangan mahsulotlar — sotuvchiga "yo'qolgan"
+    bo'lib ko'rinadi, chunki ular ro'yxatda bor, lekin sotilmaydi.
+
+    Sabab ko'pincha: rasm sifati, hujjat yetishmasligi, taqiqlangan
+    tovar toifasi. `/v1/product/shop/{shopId}` javobidagi
+    `blocked` va `skuBlockReason` maydonlaridan olinadi.
+    """
+    blocked = [s for s in stats if s.get("blocked")]
+    if not blocked:
+        return None
+
+    blocked.sort(key=lambda s: -s["fbo_qty"])
+    return {
+        "kod": "bloklangan",
+        "daraja": 1,
+        "sarlavha": f"Bloklangan mahsulotlar: {len(blocked)} ta",
+        "jami_dona": sum(s["fbo_qty"] for s in blocked),
+        "royxat": [
+            {
+                "tovar": s["name"][:40],
+                "sku": s["sku"],
+                "qoldiq": s["fbo_qty"],
+                "sabab": s.get("block_reason") or "sabab ko'rsatilmagan",
+                "xabar": s.get("block_message") or "",
+            }
+            for s in blocked[:8]
+        ],
+        "tavsiya": (
+            "Bu tovarlar omborda turibdi, lekin Uzum ularni sotuvga "
+            "chiqarmayapti. Sababini tuzatib, kabinetda qayta yuboring — "
+            "aks holda pul tovarda qotib qoladi va sotuv yo'qoladi."
+        ),
+    }
+
+
+# ------------------------------------------------------------------
 #  UMUMIY YIG'UVCHI
 # ------------------------------------------------------------------
 async def find_problems(days: int = 7) -> dict[str, Any]:
@@ -286,6 +326,7 @@ async def find_problems(days: int = 7) -> dict[str, Any]:
 
     for finder, arg in (
         (find_losing_products, items),
+        (find_blocked, stats),
         (find_running_out, stats),
         (find_dead_stock, stats),
         (find_late_orders, orders),
@@ -380,6 +421,11 @@ def as_text(res: dict[str, Any], limit: int = 5) -> str:
                     f"   {mark} {r['tovar']}: {r['qoldiq']} dona — "
                     f"<b>{r['necha_kunga_yetadi']} kunga</b>"
                 )
+
+        elif p["kod"] == "bloklangan":
+            lines.append(f"   Jami: <b>{p['jami_dona']}</b> dona sotilmay turibdi")
+            for r in p["royxat"][:3]:
+                lines.append(f"   • {r['tovar']}: {r['sabab']}")
 
         elif p["kod"] == "olik_qoldiq":
             lines.append(f"   Jami: <b>{p['jami_dona']}</b> dona qotib turibdi")

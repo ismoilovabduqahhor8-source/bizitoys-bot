@@ -18,6 +18,7 @@ def main_menu(role: str) -> ReplyKeyboardMarkup:
         [KeyboardButton(text="📦 FBS"), KeyboardButton(text="🔥 Shoshilinch")],
         [KeyboardButton(text="📊 Hisobot"), KeyboardButton(text="🔍 Tahlil")],
         [KeyboardButton(text="🔢 FBS / FBO"), KeyboardButton(text="📉 Uzum qoldiq")],
+        [KeyboardButton(text="🚫 Bloklangan")],
         [KeyboardButton(text="📋 Davomat")],
     ]
     if role == repo.ROLE_ADMIN:

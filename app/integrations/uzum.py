@@ -665,13 +665,18 @@ class UzumClient(BaseClient):
         shundan chiqaramiz: avgdsales × 7.
         """
         if settings.uzum_mock:
+            demo = [
+                ("BT-1001", "Yumshoq ayiqcha", 14, 9, False, "", ""),
+                ("BT-1002", "Konstruktor", 3, 22, False, "", ""),
+                ("BT-1003", "Mashina", 0, 5, False, "", ""),
+                ("BT-1009", "Sorter (rasm buzuq)", 8, 0, True,
+                 "Rasm sifati talabga javob bermaydi",
+                 "Mahsulot rasmini almashtiring va qayta yuboring"),
+            ]
             return [
-                {"sku": s, "name": n, "fbo_qty": q, "sold_7d": sold}
-                for (s, n, q, sold) in [
-                    ("BT-1001", "Yumshoq ayiqcha", 14, 9),
-                    ("BT-1002", "Konstruktor", 3, 22),
-                    ("BT-1003", "Mashina", 0, 5),
-                ]
+                {"sku": s, "name": n, "fbo_qty": q, "sold_7d": sold,
+                 "blocked": b, "block_reason": r, "block_message": m}
+                for (s, n, q, sold, b, r, m) in demo
             ]
 
         if shop_ids is None:
@@ -700,11 +705,23 @@ class UzumClient(BaseClient):
                         fbs = int(sku.get("quantityFbs") or 0)
                         fbo = max(active - fbs, 0)
                         avg = float(sku.get("avgdsales") or 0)
+
+                        # Bloklangan mahsulot — Uzum sotuvni to'xtatgan.
+                        # Sabab ko'pincha: rasm buzilishi, taqiqlangan
+                        # mahsulot, hujjat yetishmasligi.
+                        block = sku.get("skuBlockReason") or {}
                         out.append({
                             "sku": sku.get("skuTitle") or sku.get("article") or "—",
                             "name": sku.get("productTitle") or prod.get("title") or "—",
                             "fbo_qty": fbo,
                             "sold_7d": round(avg * 7),
+                            "blocked": bool(sku.get("blocked")),
+                            "block_reason": (
+                                block.get("title")
+                                or sku.get("blockingReason")
+                                or ""
+                            ),
+                            "block_message": block.get("message") or "",
                         })
 
                 if len(products) < 100:
