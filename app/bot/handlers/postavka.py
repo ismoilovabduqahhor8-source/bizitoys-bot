@@ -20,12 +20,13 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaPhoto,
     Message,
 )
 
@@ -614,11 +615,75 @@ async def cb_create(callback: CallbackQuery, employee: dict) -> None:
         except Exception:
             pass
 
+    # Skladga — postavkadagi mahsulotlar RASMI + SONI, faqat shaxsiy chatga.
+    #
+    # Nega avtomatik? Sklad xodimi postavka ochilganini kutib
+    # o'tirmasdan, darrov nimani terib qo'yish kerakligini ko'rsin.
+    # Nega shaxsiy? Guruhda o'nlab rasm hammani bosib ketardi.
+    await _notify_sklad_photos(callback.bot, still_ok, num)
+
     if settings.group_chat_id:
         try:
             await callback.bot.send_message(settings.group_chat_id, text)
         except Exception:
             pass
+
+
+async def _notify_sklad_photos(bot: Bot, orders: list[dict], invoice_num) -> None:
+    """
+    Postavkadagi mahsulotlarni SKU bo'yicha jamlab, har biriga rasm +
+    soni bilan skladga yuboradi — faqat shaxsiy chatga.
+
+    Guruhga emas, chunki 10-20 xil mahsulot bo'lsa, guruhda hammani
+    bosib ketadi. Har sklad xodimi o'zi ko'radi.
+    """
+    from app.services import grouping
+
+    with_photo, without = grouping.items_with_photos(orders)
+    if not with_photo and not without:
+        return
+
+    sklad = await repo.employees_by_role(repo.ROLE_SKLAD)
+    if not sklad:
+        return
+
+    header = (
+        f"📋 <b>Postavka № {invoice_num} tayyorlandi</b>\n"
+        f"<i>Shu mahsulotlarni teriб qo'ying:</i>"
+    )
+
+    for person in sklad:
+        uid = person["telegram_id"]
+        try:
+            await bot.send_message(uid, header)
+        except Exception:
+            # Xodim botga hali /start yozmagan — o'tkazib yuboramiz
+            continue
+
+        if with_photo:
+            media = [
+                InputMediaPhoto(media=r["photo"],
+                                caption=f"<b>{r['sku']}</b>\nSoni: {r['qty']}",
+                                parse_mode="HTML")
+                for r in with_photo[:10]
+            ]
+            try:
+                await bot.send_media_group(uid, media)
+            except Exception as e:
+                log.warning("Sklad uchun rasm yuborilmadi (%s): %s", uid, e)
+                for r in with_photo[:10]:
+                    try:
+                        await bot.send_message(uid, f"<b>{r['sku']}</b>\nSoni: {r['qty']}")
+                    except Exception:
+                        pass
+
+        if without:
+            lines = ["<b>Rasmsiz mahsulotlar</b>"]
+            lines += [f"• {r['sku']} — {r['qty']} dona" for r in without[:20]]
+            try:
+                await bot.send_message(uid, "\n".join(lines))
+            except Exception:
+                pass
 
 
 @router.message(Command("pvtekshir"))

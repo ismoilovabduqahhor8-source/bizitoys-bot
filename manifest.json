@@ -1,5 +1,5 @@
 {
- "app/__init__.py": "6d1367aa0ae63f76",
+ "app/__init__.py": "c00e2a19eb8e1757",
  "app/bot/__init__.py": "e3b0c44298fc1c14",
  "app/bot/cards.py": "8dc510cd08b8b9e4",
  "app/bot/handlers/__init__.py": "e3b0c44298fc1c14",
@@ -7,9 +7,9 @@
  "app/bot/handlers/attendance.py": "45317f540d63b976",
  "app/bot/handlers/common.py": "228e388547e226d0",
  "app/bot/handlers/fbs.py": "41182345195da62d",
- "app/bot/handlers/invoices.py": "66af9527fa272ec3",
+ "app/bot/handlers/invoices.py": "2585c14f41b70816",
  "app/bot/handlers/orders.py": "219377a4f9a8a4bf",
- "app/bot/handlers/postavka.py": "a60ceaed8621c8da",
+ "app/bot/handlers/postavka.py": "394204570d3c69c7",
  "app/bot/handlers/stock.py": "282fbb9a4b43bd17",
  "app/bot/keyboards.py": "fe9fef0d1b5490d8",
  "app/bot/middlewares.py": "34b81ec2634fa875",

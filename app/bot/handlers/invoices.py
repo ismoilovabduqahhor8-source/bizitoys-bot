@@ -158,19 +158,34 @@ async def _list_invoices(message: Message, all_statuses: bool) -> None:
 
 
 @router.callback_query(F.data.startswith("akt:"))
-async def cb_akt_items(callback: CallbackQuery) -> None:
-    """Akt ichidagi mahsulotlar — rasmi bilan."""
+async def cb_akt_items(callback: CallbackQuery, bot: Bot) -> None:
+    """
+    Akt ichidagi mahsulotlar — rasmi bilan.
+
+    Faqat SHAXSIY chatga yuboriladi — guruhda bosilsa ham, guruh
+    o'nlab rasm bilan to'lib ketmasin.
+    """
     invoice_id = callback.data.split(":", 1)[1]
+    uid = callback.from_user.id
+
     await callback.answer("Mahsulotlar so'ralmoqda…")
+    try:
+        await bot.send_chat_action(uid, "typing")
+    except Exception:
+        await callback.message.answer(
+            "⚠️ Avval botga shaxsiy <code>/start</code> yozing — "
+            "mahsulotlar shaxsiy chatga yuboriladi."
+        )
+        return
 
     try:
         items = await uzum.get_invoice_items(invoice_id)
     except ApiError as e:
-        await callback.message.answer(f"⚠️ Olinmadi.\n<code>{e}</code>")
+        await bot.send_message(uid, f"⚠️ Olinmadi.\n<code>{e}</code>")
         return
 
     if not items:
-        await callback.message.answer("Bu aktda mahsulot topilmadi.")
+        await bot.send_message(uid, "Bu aktda mahsulot topilmadi.")
         return
 
     total = sum(i["qty"] for i in items)
@@ -185,18 +200,27 @@ async def cb_akt_items(callback: CallbackQuery) -> None:
         head.append(f"✅ Qabul qilingan: <b>{accepted}</b>")
     if rejected:
         head.append(f"❌ Qabul qilinmagan: <b>{rejected}</b>")
-    await callback.message.answer("\n".join(head))
+    await bot.send_message(uid, "\n".join(head))
 
     # Har bir mahsulot alohida rasm — yozuvi ko'rinib tursin
     for it in items[:40]:
         caption = _item_caption(it)
         if it.get("photo"):
             try:
-                await callback.message.answer_photo(it["photo"], caption=caption)
+                await bot.send_photo(uid, it["photo"], caption=caption)
                 continue
             except Exception as e:
                 log.warning("Rasm yuborilmadi (%s): %s", it["sku"], e)
-        await callback.message.answer(f"{caption}\n<i>{it['name'][:60]}</i>")
+        await bot.send_message(uid, f"{caption}\n<i>{it['name'][:60]}</i>")
+
+    if callback.message and callback.message.chat.type != "private":
+        try:
+            await callback.message.answer(
+                f"📦 <b>{callback.from_user.full_name}</b> mahsulotlarni "
+                f"shaxsiy chatiga oldi"
+            )
+        except Exception:
+            pass
 
     if len(items) > 40:
         await callback.message.answer(f"… va yana {len(items) - 40} xil mahsulot.")
