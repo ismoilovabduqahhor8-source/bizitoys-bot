@@ -187,40 +187,13 @@ async def cb_section(callback: CallbackQuery, employee: dict) -> None:
 
 async def _send_new_group(bot: Bot, chat_id: int, group: dict) -> None:
     """
-    «Yangilar» guruhini yuboradi: HAR mahsulotning rasmi + bitta
-    «Qabul qilish» tugmasi, shu guruh uchun.
+    «Yangilar» guruhini yuboradi.
 
-    Ilgari: bitta rasm (eng ko'p sonli mahsulotniki) + «To'liq ko'rish»
-    va «Skladga berish» tugmalari, keyin ALOHIDA xabarda umumiy
-    «Qabul qilish». Endi — bir joyda, bir bosqichda.
+    Umumiy funksiyaga o'tkazildi (app/bot/cards.py) — u yerdan FBS
+    menyusi ham, guruhga avtomatik yuboriladigan e'lon ham bir xil
+    ko'rinishda foydalanadi.
     """
-    with_photo, without = grouping.items_with_photos(group["orders"])
-
-    if with_photo:
-        media = [
-            InputMediaPhoto(media=r["photo"],
-                            caption=f"<b>{r['sku']}</b>\nSoni: {r['qty']}",
-                            parse_mode="HTML")
-            for r in with_photo[:10]
-        ]
-        try:
-            await bot.send_media_group(chat_id, media)
-        except Exception as e:
-            log.warning("Rasm albomi yuborilmadi: %s", e)
-            for r in with_photo[:10]:
-                await bot.send_message(chat_id, f"<b>{r['sku']}</b>\nSoni: {r['qty']}")
-
-    text = grouping.format_group(group)
-    gid = group["gid"]
-    await bot.send_message(
-        chat_id, text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text=f"✅ Qabul qilish ({len(group['orders'])} ta)",
-                callback_data=f"fbsok:{gid}",
-            )
-        ]]),
-    )
+    await cards.send_new_order_card(bot, chat_id, group)
 
 
 @router.callback_query(F.data.startswith("fbsok:"))

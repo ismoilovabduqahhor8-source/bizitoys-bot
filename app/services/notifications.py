@@ -100,12 +100,9 @@ async def watch_new_orders(bot: Bot) -> None:
     try:
         await bot.send_message(settings.group_chat_id, header)
         for g in groups[:8]:
-            await cards.send_group_card(
-                bot,
-                settings.group_chat_id,
-                g,
-                group_actions(g["gid"], g["stage"], is_admin=True, minimal=True),
-            )
+            # Yangi buyurtma — hamma mahsulot rasmi + bitta "Qabul qilish"
+            # tugmasi. "To'liq ko'rish"/"Skladga berish" endi kerak emas.
+            await cards.send_new_order_card(bot, settings.group_chat_id, g)
         if len(groups) > 8:
             await bot.send_message(
                 settings.group_chat_id, f"… va yana {len(groups) - 8} ta guruh. /orders"
