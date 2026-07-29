@@ -20,6 +20,7 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaPhoto,
     Message,
 )
 
@@ -146,8 +147,18 @@ async def cb_section(callback: CallbackQuery, employee: dict) -> None:
         )
         return
 
-    # --- 🆕 Yangilar va 📦 Yig'ishda: guruhlangan kartochkalar ---
     groups = grouping.build(mine)
+
+    # --- 🆕 Yangilar: hamma mahsulot rasmi + bitta "Qabul qilish" ---
+    if code == "new":
+        await callback.message.answer(
+            f"<b>{label}</b> — {len(mine)} ta buyurtma, {len(groups)} ta guruh"
+        )
+        for g in groups[:8]:
+            await _send_new_group(callback.bot, callback.message.chat.id, g)
+        return
+
+    # --- 📦 Yig'ishda va boshqalar: avvalgidek ---
     is_admin = employee["role"] == repo.ROLE_ADMIN
 
     await callback.message.answer(
@@ -163,29 +174,53 @@ async def cb_section(callback: CallbackQuery, employee: dict) -> None:
         )
 
     # --- Bo'limga mos asosiy amal ---
-    gid_all = grouping.remember(f"sec:{code}", [o["order_id"] for o in mine])
+    await callback.message.answer(
+        "<b>🚚 Postavka ochish</b>\n\n"
+        "PVZ va vaqtni tanlab, postavka ochasiz.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="🚚 Postavka ochish", callback_data="fbs:postavka_ochish"
+            )
+        ]]),
+    )
 
-    if code == "new":
-        await callback.message.answer(
-            f"<b>✅ Hammasini qabul qilish</b>\n\n"
-            f"{len(mine)} ta buyurtma «Yig'ishda» bosqichiga o'tadi.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(
-                    text=f"✅ Qabul qilish ({len(mine)} ta)",
-                    callback_data=f"fbsok:{gid_all}",
-                )
-            ]]),
-        )
-    else:
-        await callback.message.answer(
-            "<b>🚚 Postavka ochish</b>\n\n"
-            "PVZ va vaqtni tanlab, postavka ochasiz.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(
-                    text="🚚 Postavka ochish", callback_data="fbs:postavka_ochish"
-                )
-            ]]),
-        )
+
+async def _send_new_group(bot: Bot, chat_id: int, group: dict) -> None:
+    """
+    «Yangilar» guruhini yuboradi: HAR mahsulotning rasmi + bitta
+    «Qabul qilish» tugmasi, shu guruh uchun.
+
+    Ilgari: bitta rasm (eng ko'p sonli mahsulotniki) + «To'liq ko'rish»
+    va «Skladga berish» tugmalari, keyin ALOHIDA xabarda umumiy
+    «Qabul qilish». Endi — bir joyda, bir bosqichda.
+    """
+    with_photo, without = grouping.items_with_photos(group["orders"])
+
+    if with_photo:
+        media = [
+            InputMediaPhoto(media=r["photo"],
+                            caption=f"<b>{r['sku']}</b>\nSoni: {r['qty']}",
+                            parse_mode="HTML")
+            for r in with_photo[:10]
+        ]
+        try:
+            await bot.send_media_group(chat_id, media)
+        except Exception as e:
+            log.warning("Rasm albomi yuborilmadi: %s", e)
+            for r in with_photo[:10]:
+                await bot.send_message(chat_id, f"<b>{r['sku']}</b>\nSoni: {r['qty']}")
+
+    text = grouping.format_group(group)
+    gid = group["gid"]
+    await bot.send_message(
+        chat_id, text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=f"✅ Qabul qilish ({len(group['orders'])} ta)",
+                callback_data=f"fbsok:{gid}",
+            )
+        ]]),
+    )
 
 
 @router.callback_query(F.data.startswith("fbsok:"))
