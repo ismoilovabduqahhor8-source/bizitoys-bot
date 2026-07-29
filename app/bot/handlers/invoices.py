@@ -19,6 +19,7 @@ from aiogram.types import (
     Message,
 )
 
+from app.db import repo
 from app.integrations.base import ApiError
 from app.integrations.uzum import uzum
 from app.services import orders as order_service
@@ -162,30 +163,30 @@ async def cb_akt_items(callback: CallbackQuery, bot: Bot) -> None:
     """
     Akt ichidagi mahsulotlar — rasmi bilan.
 
-    Faqat SHAXSIY chatga yuboriladi — guruhda bosilsa ham, guruh
-    o'nlab rasm bilan to'lib ketmasin.
+    Kimga yuboriladi: bosgan odamga EMAS, SKLAD xodimlariga — chunki
+    mahsulotni terib qo'yadigan aynan ular. Admin yoki boshqa rol
+    tugmani bossa ham, rasm skladga boradi.
     """
     invoice_id = callback.data.split(":", 1)[1]
-    uid = callback.from_user.id
 
     await callback.answer("Mahsulotlar so'ralmoqda…")
-    try:
-        await bot.send_chat_action(uid, "typing")
-    except Exception:
+
+    sklad = await repo.employees_by_role(repo.ROLE_SKLAD)
+    if not sklad:
         await callback.message.answer(
-            "⚠️ Avval botga shaxsiy <code>/start</code> yozing — "
-            "mahsulotlar shaxsiy chatga yuboriladi."
+            "⚠️ Sklad xodimi ro'yxatda yo'q.\n"
+            "<i>/add_sklad bilan qo'shing.</i>"
         )
         return
 
     try:
         items = await uzum.get_invoice_items(invoice_id)
     except ApiError as e:
-        await bot.send_message(uid, f"⚠️ Olinmadi.\n<code>{e}</code>")
+        await callback.message.answer(f"⚠️ Olinmadi.\n<code>{e}</code>")
         return
 
     if not items:
-        await bot.send_message(uid, "Bu aktda mahsulot topilmadi.")
+        await callback.message.answer("Bu aktda mahsulot topilmadi.")
         return
 
     total = sum(i["qty"] for i in items)
@@ -200,27 +201,38 @@ async def cb_akt_items(callback: CallbackQuery, bot: Bot) -> None:
         head.append(f"✅ Qabul qilingan: <b>{accepted}</b>")
     if rejected:
         head.append(f"❌ Qabul qilinmagan: <b>{rejected}</b>")
-    await bot.send_message(uid, "\n".join(head))
+    header_text = "\n".join(head)
 
-    # Har bir mahsulot alohida rasm — yozuvi ko'rinib tursin
-    for it in items[:40]:
-        caption = _item_caption(it)
-        if it.get("photo"):
-            try:
-                await bot.send_photo(uid, it["photo"], caption=caption)
-                continue
-            except Exception as e:
-                log.warning("Rasm yuborilmadi (%s): %s", it["sku"], e)
-        await bot.send_message(uid, f"{caption}\n<i>{it['name'][:60]}</i>")
-
-    if callback.message and callback.message.chat.type != "private":
+    sent_to = 0
+    for person in sklad:
+        uid = person["telegram_id"]
         try:
-            await callback.message.answer(
-                f"📦 <b>{callback.from_user.full_name}</b> mahsulotlarni "
-                f"shaxsiy chatiga oldi"
-            )
+            await bot.send_chat_action(uid, "typing")
         except Exception:
-            pass
+            # Xodim botga hali /start yozmagan — o'tkazib yuboramiz
+            continue
+
+        await bot.send_message(uid, header_text)
+        for it in items[:40]:
+            caption = _item_caption(it)
+            if it.get("photo"):
+                try:
+                    await bot.send_photo(uid, it["photo"], caption=caption)
+                    continue
+                except Exception as e:
+                    log.warning("Rasm yuborilmadi (%s): %s", it["sku"], e)
+            await bot.send_message(uid, f"{caption}\n<i>{it['name'][:60]}</i>")
+        sent_to += 1
+
+    if sent_to:
+        await callback.message.answer(
+            f"✅ Mahsulotlar <b>{sent_to}</b> ta sklad xodimiga yuborildi."
+        )
+    else:
+        await callback.message.answer(
+            "⚠️ Hech kimga yetkazilmadi — sklad xodimlari botga "
+            "hali <code>/start</code> yozmagan."
+        )
 
     if len(items) > 40:
         await callback.message.answer(f"… va yana {len(items) - 40} xil mahsulot.")
