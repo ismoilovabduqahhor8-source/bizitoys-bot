@@ -61,6 +61,23 @@ async def _counts(employee: dict) -> tuple[dict[str, int], list[dict]]:
     counts = {}
     for code, (_, stages) in SECTIONS.items():
         counts[code] = sum(1 for o in orders if o["status"] in stages)
+
+    # «Postavkada» soni — ICHKI holatdan emas, HAQIQIY aktlardan.
+    #
+    # Sabab: ichki baza "in_postavka" belgisini saqlab qoladi, hatto
+    # akt Uzumda allaqachon qabul qilingan (ACCEPTED) bo'lsa ham —
+    # buyurtma bosqichi hech kim tomonidan qo'lda surilmaguncha.
+    # Natijada eski, allaqachon yopilgan aktlarning buyurtmalari ham
+    # "22" ga qo'shilib, haqiqiy akt sonidan (masalan 11) ko'p chiqadi.
+    #
+    # Aktlar ro'yxati (get_invoices) esa har doim aniq — chunki u
+    # to'g'ridan-to'g'ri Uzumdan, ACTIVE_INVOICE_STATUSES bo'yicha.
+    try:
+        invoices = await uzum.get_invoices()
+        counts["postavka"] = sum(inv.get("orders") or 0 for inv in invoices)
+    except ApiError as e:
+        log.warning("Aktlar soni olinmadi, ichki holatdan foydalanamiz: %s", e)
+
     return counts, orders
 
 
@@ -140,7 +157,13 @@ async def cb_section(callback: CallbackQuery, employee: dict) -> None:
     if code == "postavka":
         await callback.message.answer(
             f"<b>{label}</b> — {len(mine)} ta buyurtma\n\n"
-            "<i>Aktlar ro'yxati va QR kodlar:</i>",
+            "<i>Bu — yo'lda turgan BARCHA buyurtmalar soni (bir nechta "
+            "aktga tarqalgan bo'lishi mumkin). «Aktlarni ochish» esa "
+            "faqat hali OCHIQ (Uzum tomonidan qabul qilinmagan) "
+            "aktlarni ko'rsatadi — shuning uchun ikkala son boshqa-boshqa "
+            "bo'lishi normal: Uzum allaqachon qabul qilgan akt bu "
+            "ro'yxatda ko'rinmaydi, garchi uning buyurtmalari hali "
+            "yo'lda bo'lsa ham.</i>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="📋 Aktlarni ochish", callback_data="fbs:akt")
             ]]),

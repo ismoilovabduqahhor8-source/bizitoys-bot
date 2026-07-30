@@ -356,14 +356,14 @@ async def hourly_report(bot: Bot) -> None:
     """
     Soatlik hisobot — kun bo'yi (08:00–23:00), faqat adminlarga.
 
-    Kunlik hisobotdan farqi: bu KECHAGI emas, BUGUNGI kun uchun,
-    00:00 dan HOZIRGACHA (jamlanib boruvchi). Ya'ni har chaqirilganda
-    "bugun hozirgacha qancha sotildi" ko'rinadi — kun davomida
-    o'sib boradigan jonli holat.
+    MUHIM: bu KUMULYATIV emas — aynan SHU SOAT ichidagi sotuv.
+    Masalan soat 15:00 da yuborilgan hisobot 14:00 dan 15:00
+    gachagi sotuvni ko'rsatadi, kun boshidan hozirgacha emas.
 
-    Ma'lumot bo'lmasa (ertalab hali Uzum to'ldirmagan bo'lsa), jim
-    o'tkazib yuboriladi — bo'sh hisobot yuborish foydasiz.
+    Ma'lumot bo'lmasa (shu soatda hech narsa sotilmagan bo'lsa),
+    jim o'tkazib yuboriladi — bo'sh hisobot yuborish foydasiz.
     """
+    from datetime import timedelta
     from aiogram.types import BufferedInputFile
     from app.services import report, report_image
 
@@ -373,21 +373,23 @@ async def hourly_report(bot: Bot) -> None:
     if not admins:
         return
 
-    now = datetime.now(TZ)
+    hour_end = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
+    hour_start = hour_end - timedelta(hours=1)
+    title = f"{hour_start:%H:%M} – {hour_end:%H:%M}"
 
     try:
-        rep = await report.build(now)
-        full = await report.build_full(now)
+        rep = await report.build_between(hour_start, hour_end, title)
+        full = await report.build_full_between(hour_start, hour_end, title)
     except Exception as e:
         log.warning("Soatlik hisobot tayyorlanmadi: %s", e)
         return
 
     if not rep["items"]:
-        log.info("Soatlik hisobot: hali ma'lumot yo'q")
+        log.info("Soatlik hisobot: %s oralig'ida sotuv yo'q", title)
         return
 
     img = report_image.render(rep)
-    text = f"🕐 <b>Soatlik holat — {now:%H:%M}</b>\n\n" + report.as_full_text(full)
+    text = f"🕐 <b>Soatlik sotuv</b>\n" + report.as_full_text(full)
 
     for a in admins:
         uid = a["telegram_id"]
@@ -396,11 +398,11 @@ async def hourly_report(bot: Bot) -> None:
                 await bot.send_photo(
                     uid,
                     BufferedInputFile(
-                        img, filename=f"soatlik_{now:%Y-%m-%d_%H}.png"
+                        img, filename=f"soatlik_{hour_end:%Y-%m-%d_%H}.png"
                     ),
                 )
             await bot.send_message(uid, text)
         except Exception as e:
             log.warning("Soatlik hisobot yuborilmadi (%s): %s", uid, e)
 
-    log.info("Soatlik hisobot %d adminga yuborildi (%s)", len(admins), now.strftime("%H:%M"))
+    log.info("Soatlik hisobot %d adminga yuborildi (%s)", len(admins), title)

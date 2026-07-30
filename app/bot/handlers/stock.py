@@ -241,7 +241,6 @@ async def cb_report_period(callback: CallbackQuery, employee: dict) -> None:
     wait = await callback.message.answer("⏳ Hisobot tayyorlanmoqda…")
     try:
         rep = await report.build_period(kind)
-        full = await report.build_full_period(kind)
     except ApiError as e:
         await wait.edit_text(f"⚠️ Ma'lumot olinmadi.\n<code>{e}</code>")
         return
@@ -271,8 +270,8 @@ async def cb_report_period(callback: CallbackQuery, employee: dict) -> None:
             "<code>pip install -r requirements.txt</code>"
         )
 
-    # 2) MATN — Uzum Market uslubidagi batafsil hisobot, pastda
-    await callback.message.answer(report.as_full_text(full))
+    # 2) MATN — qisqa va toza, rasm bilan bir xil raqamlar
+    await callback.message.answer(report.as_summary_text(rep))
 
 
 @router.message(Command("tahlil"))

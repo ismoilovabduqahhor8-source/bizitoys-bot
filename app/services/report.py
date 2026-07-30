@@ -121,7 +121,7 @@ async def build_between(start: datetime, end: datetime, title: str) -> dict[str,
     # qat'i nazar bitta qatorda ko'rinadi.
     agg: dict[str, dict[str, Any]] = {}
     for r in rows:
-        if r.get("cancelled"):
+        if r.get("status") in ("CANCELED", "PARTIALLY_CANCELLED") or r.get("cancelled"):
             continue
         key = str(r["name"]).strip().upper()
         a = agg.setdefault(key, {
@@ -226,6 +226,45 @@ async def build_period(kind: str) -> dict[str, Any]:
     """Tugma orqali tanlangan davr (bugun/kecha/bu oy) uchun hisobot."""
     start, end, title = period_bounds(kind)
     return await build_between(start, end, title)
+
+
+def as_summary_text(rep: dict[str, Any]) -> str:
+    """
+    Qisqa, toza hisobot matni.
+
+    MUHIM: bu yerda YO'Q narsalar ataylab yo'q —
+      • salomlashish ("Assalomu aleykum")
+      • Sof foyda / ROI (foydalanuvchi so'rovi bilan olib tashlangan)
+      • "Kecha tushdi / bugun tushishi kerak" — bular taxminiy edi
+        va rasm bilan bir xil manbadan kelmagani uchun raqamlar
+        farq qilib, chalkashlik keltirardi
+
+    Ko'rsatiladigan raqamlar RASMDAGI bilan AYNAN bir xil manbadan —
+    ikkalasi ham shu `rep` obyektidan olinadi, shuning uchun hech
+    qachon bir-biridan farq qilmaydi.
+    """
+    t = rep["total"]
+    title = rep.get("title") or f"{rep['date']:%d.%m.%Y}"
+    partial = rep.get("source") == "buyurtmalar"
+
+    lines = [
+        f"📊 <b>{title}</b>",
+        "",
+        f"📦 Sotilgan: <b>{t['qty']}</b> dona",
+        f"💰 Daromad: <b>{fmt(t['revenue'])}</b> so'm",
+    ]
+    if not partial:
+        lines.append(f"🏦 Chiqarishga: <b>{fmt(t['payout'])}</b> so'm")
+    else:
+        lines.append("<i>ℹ️ Moliyaviy ma'lumot hali yo'q — faqat sotuv soni.</i>")
+
+    top = sorted(rep["items"], key=lambda x: -x["revenue"])[:5]
+    if top:
+        lines += ["", "<b>🔝 Eng ko'p sotilgan</b>"]
+        for i in top:
+            lines.append(f"   {i['sku'][:24]} — {i['qty']} dona · {fmt(i['revenue'])}")
+
+    return "\n".join(lines)
 
 
 def as_text(rep: dict[str, Any], limit: int = 12) -> str:
@@ -458,51 +497,46 @@ async def build_full_period(kind: str) -> dict[str, Any]:
 
 
 def as_full_text(rep: dict[str, Any]) -> str:
-    """Uzum Market uslubidagi matn — skrinshotdagi format."""
+    """
+    Uzum Market uslubidagi qisqa matn.
+
+    MUHIM: "Qabul qilingan" va "Olib ketilgan" endi ALOHIDA
+    ko'rsatilmaydi — ular bitta umumiy summaga qo'shiladi. Sabab:
+    ular Uzumning ichki statuslari (TO_WITHDRAW/PROCESSING) bo'yicha
+    bo'lingan edi, va ko'pincha biri 0 chiqib, foydasiz chalkashlik
+    keltirardi. Endi shu son RASMDAGI jadval bilan bir xil bo'ladi.
+
+    Foydalanuvchi so'rovi bilan olib tashlangan qismlar: salomlashuv,
+    "kecha/bugun pul tushdi/tushishi kerak" taxminlari, xarajat va
+    qaytarilgan mablag' ro'yxati — булар taxminiy va chalkashtirardi.
+    """
     a, c = rep["accepted"], rep["completed"]
     cn = rep["canceled"]
     title = rep.get("title") or f"{rep['date']:%d.%m.%Y}"
 
+    count = a["count"] + c["count"]
+    qty = a["qty"] + c["qty"]
+    revenue = a["revenue"] + c["revenue"]
+    payout = a["payout"] + c["payout"]
+
     lines = [
-        "🟣 <b>Uzum Market</b>",
-        "Assalomu aleykum!",
+        f"📅 <b>{title}</b> uchun hisobot",
         "",
-        f"📅 {title} uchun hisobot",
-        "",
-        f"📥 Qabul qilingan buyurtmalar soni: <b>{a['count']}</b>",
-        f"📦 Sotilgan tovarlar soni: <b>{a['qty']}</b>",
-        f"💰 Daromad: <b>{fmt(a['revenue'])}</b> so'm",
-        f"🏦 Foyda chiqarishga: <b>{fmt(a['payout'])}</b> so'm",
-        "",
-        f"🚚 Olib ketilgan buyurtmalar soni: <b>{c['count']}</b>",
-        f"💰 Daromad: <b>{fmt(c['revenue'])}</b> so'm",
-        f"🏦 Foyda chiqarishga: <b>{fmt(c['payout'])}</b> so'm",
-        "",
-        f"❌ Bekor qilinganlar soni: <b>{cn['count']}</b>",
-        f"   Qiymati: {fmt(cn['value'])} so'm",
-    ]
-    if cn["point"]:
-        lines.append(f"📍 Punktda bekor qilinganlar: <b>{cn['point']}</b>")
-    if cn["other"]:
-        lines.append(f"❔ Boshqa sababli bekor qilindi: <b>{cn['other']}</b>")
-
-    iy, it = rep["income_yesterday"], rep["income_today_expected"]
-    lines += [
-        "",
-        f"💵 Kecha sizga taxminan <b>{fmt(iy['amount'])}</b> so'm pul tushdi, "
-        f"buyurtmalar soni: {iy['count']}.",
-        f"💵 Bugun sizga taxminan <b>{fmt(it['amount'])}</b> so'm pul tushishi kerak, "
-        f"buyurtmalar soni: {it['count']}.",
+        f"📥 Buyurtmalar soni: <b>{count}</b>",
+        f"📦 Sotilgan tovarlar soni: <b>{qty}</b>",
+        f"💰 Daromad: <b>{fmt(revenue)}</b> so'm",
+        f"🏦 Chiqarishga: <b>{fmt(payout)}</b> so'm",
     ]
 
-    if rep["expenses_by_source"]:
-        lines += ["", f"🔴 Kecha sizdan {fmt(rep['expenses_total'])} so'm pul yechib olindi:"]
-        for label, amt in sorted(rep["expenses_by_source"].items(), key=lambda x: -x[1]):
-            lines.append(f"   ➤ {label}: {fmt(amt)} so'm")
-
-    if rep["refunds_by_source"]:
-        lines += ["", f"🟢 Kecha sizga {fmt(rep['refunds_total'])} so'm pul qaytarildi:"]
-        for label, amt in sorted(rep["refunds_by_source"].items(), key=lambda x: -x[1]):
-            lines.append(f"   ➤ {label}: {fmt(amt)} so'm")
+    if cn["count"]:
+        lines += [
+            "",
+            f"❌ Bekor qilinganlar soni: <b>{cn['count']}</b>",
+            f"   Qiymati: {fmt(cn['value'])} so'm",
+        ]
+        if cn["point"]:
+            lines.append(f"📍 Punktda bekor qilinganlar: <b>{cn['point']}</b>")
+        if cn["other"]:
+            lines.append(f"❔ Boshqa sababli bekor qilindi: <b>{cn['other']}</b>")
 
     return "\n".join(lines)
