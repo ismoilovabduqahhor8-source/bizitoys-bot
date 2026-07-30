@@ -406,3 +406,61 @@ async def hourly_report(bot: Bot) -> None:
             log.warning("Soatlik hisobot yuborilmadi (%s): %s", uid, e)
 
     log.info("Soatlik hisobot %d adminga yuborildi (%s)", len(admins), title)
+
+
+async def check_fbo_invoices(bot: Bot) -> None:
+    """
+    FBO yuk xatlarining holatini tekshiradi. Yangi holat "qabul
+    qilingan"ga o'zgargan bo'lsa, adminlarga BIR MARTA xabar beradi.
+
+    Nega bazada saqlaymiz? Har tekshiruvda qayta xabar bermaslik
+    uchun — faqat holat O'ZGARGANDA (yoki birinchi marta ACCEPTED
+    holatida topilganda) xabar ketadi.
+    """
+    admins = [
+        e for e in await repo.list_employees() if e["role"] == repo.ROLE_ADMIN
+    ]
+    if not admins:
+        return
+
+    from app.integrations.uzum import uzum
+
+    try:
+        invoices = await uzum.get_fbo_invoices()
+    except Exception as e:
+        log.warning("FBO holatini tekshirishda xato: %s", e)
+        return
+
+    for inv in invoices:
+        inv_id = str(inv["id"])
+        is_accepted = (inv.get("status_value") or "").upper() == "ACCEPTED"
+
+        prev_status = await repo.get_fbo_invoice_status(inv_id)
+        already_notified = await repo.was_fbo_notified(inv_id)
+
+        if is_accepted and not already_notified:
+            diff = inv["total_to_stock"] - inv["total_accepted"]
+            text = (
+                f"✅ <b>Yuk xati № {inv['number']} qabul qilindi!</b>\n\n"
+                f"🏪 {inv['shop_name']}\n"
+                f"📤 Jo'natilgan: {inv['total_to_stock']} dona\n"
+                f"📥 Qabul qilingan: {inv['total_accepted']} dona"
+            )
+            if diff > 0:
+                text += f"\n⚠️ Farq: <b>{diff} dona</b> yo'qolgan yoki rad etilgan"
+
+            for a in admins:
+                try:
+                    await bot.send_message(a["telegram_id"], text)
+                except Exception:
+                    pass
+
+            await repo.set_fbo_invoice_state(
+                inv_id, inv["shop_id"], inv["status_value"], notified=True
+            )
+        elif prev_status != inv.get("status_value"):
+            # Status o'zgardi, lekin hali qabul qilingan emas — kuzatib
+            # boramiz, xabar bermaymiz
+            await repo.set_fbo_invoice_state(
+                inv_id, inv["shop_id"], inv["status_value"], notified=False
+            )

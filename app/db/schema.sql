@@ -74,3 +74,14 @@ CREATE TABLE IF NOT EXISTS attendance (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(work_date);
+
+-- FBO yuk xatlari holati — qabul qilinganini kuzatish uchun.
+-- Har safar tekshirilganda status saqlanadi; o'zgarsa (ACCEPTED
+-- bo'lsa) adminlarga bir marta xabar beriladi.
+CREATE TABLE IF NOT EXISTS fbo_invoice_state (
+    invoice_id    TEXT PRIMARY KEY,
+    shop_id       INTEGER,
+    status_value  TEXT NOT NULL,
+    notified      INTEGER NOT NULL DEFAULT 0,   -- 0/1: qabul haqida xabar berildimi
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);

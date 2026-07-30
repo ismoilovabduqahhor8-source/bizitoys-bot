@@ -102,11 +102,200 @@ async def _show_menu(target, employee: dict, edit: bool = False) -> None:
 @router.message(Command("fbs"))
 @router.message(F.text == "📦 FBS")
 async def cmd_fbs(message: Message, employee: dict) -> None:
-    wait = await message.answer("⏳ Yuklanmoqda…")
+    """
+    Birinchi qadam — FBS yoki FBO tanlanadi.
+
+    Ilgari bu tugma darrov FBS bo'limlariga (Yangilar/Yig'ishda/
+    Postavkada) olib borardi. Endi avval qaysi ish turi kerakligi
+    so'raladi, chunki FBO'da butunlay boshqa ish (yuk xatlari,
+    zelyoniy koridor) bor.
+    """
+    await message.answer(
+        "<b>📦 Qaysi ish turi?</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🏬 FBS", callback_data="top:fbs"),
+            InlineKeyboardButton(text="🚛 FBO", callback_data="top:fbo"),
+        ]]),
+    )
+
+
+@router.callback_query(F.data == "top:fbs")
+async def cb_top_fbs(callback: CallbackQuery, employee: dict) -> None:
+    await callback.answer()
+    wait_msg = callback.message
     try:
-        await _show_menu(wait, employee, edit=True)
+        await wait_msg.edit_text("⏳ Yuklanmoqda…")
+    except Exception:
+        wait_msg = await callback.message.answer("⏳ Yuklanmoqda…")
+    await _show_menu(wait_msg, employee, edit=True)
+
+
+# ------------------------------------------------------------------
+#  🚛 FBO — yuk xatlari va zelyoniy koridor
+# ------------------------------------------------------------------
+
+# "Qaysi sanaga rejalashtirilgan?" javobini kutayotgan foydalanuvchilar.
+# {telegram_id: (shop_id, invoice_id)}
+_AWAITING_DATE: dict[int, tuple[int, str]] = {}
+
+# Bu statuslarga ega akt ENDI YANGI emas — Excel/bildirishnoma
+# kerak emas (Uzum allaqachon qabul qilgan yoki qilyapti).
+_FBO_DONE_MARKERS = ("прин", "accept")  # rus/ingliz: принят(а)/принимается, accepted
+
+
+def _fbo_is_new(inv: dict) -> bool:
+    label = (inv.get("status_label") or "").lower()
+    value = (inv.get("status_value") or "").upper()
+    if value == "ACCEPTED":
+        return False
+    return not any(m in label for m in _FBO_DONE_MARKERS)
+
+
+@router.callback_query(F.data == "top:fbo")
+async def cb_top_fbo(callback: CallbackQuery, employee: dict) -> None:
+    """FBO yuk xatlari — faqat hali qabul qilinmagan (yangi) aktlar."""
+    await callback.answer("Yuk xatlari so'ralmoqda…")
+    try:
+        await callback.message.edit_text("⏳ FBO yuk xatlari olinmoqda…")
+    except Exception:
+        pass
+
+    try:
+        invoices = await uzum.get_fbo_invoices()
+    except ApiError as e:
+        await callback.message.answer(f"⚠️ Olinmadi.\n<code>{e}</code>")
+        return
+
+    new_ones = [i for i in invoices if _fbo_is_new(i)]
+
+    try:
+        await callback.message.edit_text(
+            f"<b>🚛 FBO yuk xatlari</b>\n\n"
+            f"Yangi (hali qabul qilinmagan): <b>{len(new_ones)}</b> ta\n"
+            f"<i>Qabul qilingan aktlar bu yerda ko'rsatilmaydi — "
+            f"ular uchun endi hech qanday amal kerak emas.</i>"
+        )
+    except Exception:
+        pass
+
+    if not new_ones:
+        return
+
+    for inv in new_ones[:10]:
+        rows = [[
+            InlineKeyboardButton(
+                text="📦 Mahsulotlar",
+                callback_data=f"fboprod:{inv['shop_id']}:{inv['id']}",
+            ),
+            InlineKeyboardButton(
+                text="📗 Excel (zelyoniy koridor)",
+                callback_data=f"fboxls:{inv['shop_id']}:{inv['id']}",
+            ),
+        ]]
+        await callback.message.answer(
+            f"📦 <b>Yuk xati № {inv['number']}</b>\n"
+            f"🏪 {inv['shop_name']}\n"
+            f"📋 Holati: {inv['status_label']}\n"
+            f"💰 Qiymati: {inv['total_price']:,} so'm\n".replace(",", " ")
+            + f"📤 Jo'natilgan: <b>{inv['total_to_stock']}</b> dona",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+
+
+@router.callback_query(F.data.startswith("fboprod:"))
+async def cb_fbo_products(callback: CallbackQuery) -> None:
+    """FBO yuk xatidagi mahsulotlar ro'yxati — soni bilan."""
+    _, shop_id, invoice_id = callback.data.split(":", 2)
+    await callback.answer("Mahsulotlar so'ralmoqda…")
+
+    try:
+        products = await uzum.get_fbo_invoice_products(int(shop_id), invoice_id)
+    except ApiError as e:
+        await callback.message.answer(f"⚠️ Olinmadi.\n<code>{e}</code>")
+        return
+
+    if not products:
+        await callback.message.answer("Mahsulot topilmadi.")
+        return
+
+    lines = [f"📦 <b>Yuk xati № {invoice_id} — mahsulotlar</b>", ""]
+    for p in products:
+        mark = "✅" if p["accepted"] >= p["to_stock"] else "⚠️"
+        lines.append(
+            f"{mark} <b>{p['name'][:40]}</b>\n"
+            f"   SKU: <code>{p['sku']}</code>\n"
+            f"   Jo'natilgan: {p['to_stock']} · Qabul qilingan: {p['accepted']}"
+        )
+    await callback.message.answer("\n\n".join(lines))
+
+
+@router.callback_query(F.data.startswith("fboxls:"))
+async def cb_fbo_excel_start(callback: CallbackQuery) -> None:
+    """
+    Excel yaratishni boshlaydi — avval rejalashtirilgan sanani so'raydi.
+
+    Fayl NOMI bugungi sanadan olinadi (avtomatik), lekin jadval
+    ICHIDAGI "Планируемая дата отгрузки" ustuni FOYDALANUVCHI
+    bergan sana bilan to'ldiriladi — bular ikki xil narsa.
+    """
+    _, shop_id, invoice_id = callback.data.split(":", 2)
+    await callback.answer()
+    _AWAITING_DATE[callback.from_user.id] = (int(shop_id), invoice_id)
+    await callback.message.answer(
+        "📗 <b>Zelyoniy koridor — Excel</b>\n\n"
+        "Qaysi sanaga rejalashtirilgan? Masalan: <code>25.07.2026</code>\n\n"
+        "<i>Bu — jadvaldagi «Планируемая дата отгрузки» ustuni uchun. "
+        "Nakladnoyning haqiqiy sanasi Uzumdan avtomatik olinadi.</i>"
+    )
+
+
+@router.message(F.text, F.func(lambda m: m.from_user.id in _AWAITING_DATE))
+async def on_fbo_date(message: Message) -> None:
+    """Foydalanuvchi rejalashtirilgan sanani yozganda — Excel quriladi."""
+    shop_id, invoice_id = _AWAITING_DATE.pop(message.from_user.id)
+    planned_date = (message.text or "").strip()
+
+    wait = await message.answer("⏳ Excel tayyorlanmoqda…")
+    try:
+        invoices = await uzum.get_fbo_invoices(shop_ids=[shop_id])
+        invoice = next((i for i in invoices if str(i["id"]) == str(invoice_id)), None)
+        products = await uzum.get_fbo_invoice_products(shop_id, invoice_id)
     except ApiError as e:
         await wait.edit_text(f"⚠️ Ma'lumot olinmadi.\n<code>{e}</code>")
+        return
+
+    if not invoice:
+        await wait.edit_text("⚠️ Bu yuk xati topilmadi.")
+        return
+
+    from app.services import fbo_excel
+    from aiogram.types import BufferedInputFile
+    from datetime import datetime as _dt
+
+    xlsx = fbo_excel.build(invoice, products, planned_date)
+    fname = f"zelyoniy_koridor_{_dt.now():%d.%m.%Y}.xlsx"
+
+    await wait.delete()
+    await message.answer_document(
+        BufferedInputFile(xlsx, filename=fname),
+        caption=(
+            f"📗 Yuk xati № {invoice['number']}\n"
+            f"Rejalashtirilgan sana: {planned_date}\n\n"
+            f"<i>«Ссылка на акты» ustuni bo'sh — havolani o'zingiz "
+            f"qo'shing.</i>"
+        ),
+    )
+
+
+@router.message(Command("fbo"))
+async def cmd_fbo_shortcut(message: Message, employee: dict) -> None:
+    """/fbo — to'g'ridan-to'g'ri FBO bo'limiga o'tish (menyusiz)."""
+    await message.answer(
+        "<b>🚛 FBO</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📦 Yuk xatlarini ko'rish", callback_data="top:fbo")
+        ]]),
+    )
 
 
 @router.callback_query(F.data == "fbs:menu")

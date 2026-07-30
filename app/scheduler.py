@@ -245,6 +245,14 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         id="hourly_report",
     )
 
+    # --- FBO yuk xatlari qabul qilinganini kuzatish (har 20 daqiqada) ---
+    sched.add_job(
+        notif.check_fbo_invoices,
+        IntervalTrigger(minutes=20, timezone=tz),
+        args=[bot],
+        id="check_fbo_invoices",
+    )
+
     # --- Ombor tekshiruvi ---
     sched.add_job(
         check_low_stock,
@@ -262,6 +270,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     log.info("  • skladga ro'yxat:           %s (shaxsiy chatga)", settings.sklad_list_at)
     log.info("  • moliyaviy hisobot:         %s (adminlarga, kechagi kun)", settings.money_report_at)
     log.info("  • soatlik hisobot:           08:00-23:00, har soat (adminlarga)")
+    log.info("  • FBO qabul kuzatuvi:        har 20 daqiqada")
     log.info("  • hisobotlar:                %s va %s",
              settings.morning_report_at, settings.evening_report_at)
     return sched

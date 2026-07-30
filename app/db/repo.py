@@ -425,3 +425,52 @@ async def employees_by_role(role: str, only_present: bool = False) -> list[dict[
         p for p in people
         if (att.get(p["telegram_id"]) or {}).get("status") in (ATT_PRESENT, ATT_LATE)
     ]
+
+
+# ------------------------------------------------------------------
+#  FBO YUK XATLARI — qabul qilinganini bir marta xabar berish uchun
+# ------------------------------------------------------------------
+async def get_fbo_invoice_status(invoice_id: str) -> str | None:
+    """Oxirgi ma'lum status. Birinchi tekshiruvda None qaytadi."""
+    db = await _conn()
+    try:
+        async with db.execute(
+            "SELECT status_value FROM fbo_invoice_state WHERE invoice_id = ?",
+            (str(invoice_id),),
+        ) as cur:
+            row = await cur.fetchone()
+            return row["status_value"] if row else None
+    finally:
+        await db.close()
+
+
+async def was_fbo_notified(invoice_id: str) -> bool:
+    db = await _conn()
+    try:
+        async with db.execute(
+            "SELECT notified FROM fbo_invoice_state WHERE invoice_id = ?",
+            (str(invoice_id),),
+        ) as cur:
+            row = await cur.fetchone()
+            return bool(row and row["notified"])
+    finally:
+        await db.close()
+
+
+async def set_fbo_invoice_state(
+    invoice_id: str, shop_id: int, status_value: str, notified: bool = False
+) -> None:
+    db = await _conn()
+    try:
+        await db.execute(
+            """INSERT INTO fbo_invoice_state (invoice_id, shop_id, status_value, notified, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(invoice_id) DO UPDATE SET
+                   status_value = excluded.status_value,
+                   notified = excluded.notified,
+                   updated_at = excluded.updated_at""",
+            (str(invoice_id), shop_id, status_value, int(notified)),
+        )
+        await db.commit()
+    finally:
+        await db.close()
