@@ -61,6 +61,10 @@ ENDPOINTS = {
     "invoice_print": f"{PREFIX}/v1/fbs/invoice/{{invoice_id}}/print",
     "drop_off_points": f"{PREFIX}/v1/fbs/invoice/dop/drop-off-points",
     "time_slots": f"{PREFIX}/v1/fbs/invoice/dop/time-slot",
+    # FBO yuk xatlari — bular FBS invoice'dan BOSHQA narsa: Uzum
+    # omboriga jo'natiladigan yuk xatlari (накладные поставки FBO)
+    "fbo_invoices": f"{PREFIX}/v1/shop/{{shop_id}}/invoice",
+    "fbo_invoice_products": f"{PREFIX}/v1/shop/{{shop_id}}/invoice/products",
 }
 
 # ============================================================
@@ -729,6 +733,88 @@ class UzumClient(BaseClient):
                 page += 1
 
         return out
+
+    # ---------------------------------------------------------------
+    #  FBO YUK XATLARI
+    #
+    #  Bular FBS aktidan BUTUNLAY BOSHQA narsa: bu — sizning tovaringiz
+    #  Uzum omboriga (FBO) jo'natilganda ochiladigan yuk xati. FBS
+    #  aktida "buyurtma"lar bo'ladi, bu yerda esa "mahsulot" (qancha
+    #  dona jo'natilgan, qanchasi qabul qilingan).
+    # ---------------------------------------------------------------
+    async def get_fbo_invoices(
+        self, shop_ids: list[int] | None = None, size: int = 20
+    ) -> list[dict[str, Any]]:
+        """FBO yuk xatlari ro'yxati — barcha do'konlar bo'yicha."""
+        if settings.uzum_mock:
+            return mock_data.mock_fbo_invoices()
+
+        names = await self.shop_names()
+        if shop_ids is None:
+            shop_ids = settings.uzum_shop_ids or list(names.keys())
+
+        out: list[dict[str, Any]] = []
+        for shop_id in shop_ids:
+            try:
+                raw = await self.get(
+                    ENDPOINTS["fbo_invoices"].format(shop_id=shop_id),
+                    params={"page": 0, "size": size},
+                )
+            except ApiError as e:
+                log.warning("FBO yuk xatlari olinmadi (do'kon %s): %s", shop_id, e)
+                continue
+
+            rows = raw if isinstance(raw, list) else self._extract_list(
+                raw, ("content", "items", "invoices")
+            )
+            for r in rows:
+                status = r.get("invoiceStatus") or {}
+                out.append({
+                    "id": r.get("id"),
+                    "number": r.get("invoiceNumber") or r.get("id"),
+                    "shop_id": shop_id,
+                    "shop_name": names.get(shop_id, ""),
+                    "status_value": status.get("value") or r.get("status") or "",
+                    "status_label": status.get("text") or r.get("status") or "—",
+                    "total_price": int(r.get("fullPrice") or 0),
+                    "total_to_stock": int(r.get("totalToStock") or 0),
+                    "total_accepted": int(r.get("totalAccepted") or 0),
+                    "date_created": r.get("dateCreated"),
+                    "date_accepted": r.get("dateAccepted"),
+                })
+
+        out.sort(key=lambda x: x.get("date_created") or "", reverse=True)
+        return out
+
+    async def get_fbo_invoice_products(
+        self, shop_id: int, invoice_id: Any
+    ) -> list[dict[str, Any]]:
+        """Bitta FBO yuk xatidagi mahsulotlar — soni bilan."""
+        if settings.uzum_mock:
+            return mock_data.mock_fbo_invoice_products()
+
+        try:
+            raw = await self.get(
+                ENDPOINTS["fbo_invoice_products"].format(shop_id=shop_id),
+                params={"invoiceId": invoice_id},
+            )
+        except ApiError as e:
+            log.warning("FBO yuk xati mahsulotlari olinmadi: %s", e)
+            return []
+
+        rows = raw if isinstance(raw, list) else self._extract_list(
+            raw, ("content", "items")
+        )
+        return [
+            {
+                "sku": r.get("skuTitle") or "—",
+                "name": r.get("productTitle") or "—",
+                "to_stock": int(r.get("quantityToStock") or 0),
+                "accepted": int(r.get("quantityAccepted") or 0),
+                "purchase_price": int(r.get("purchasePrice") or 0),
+            }
+            for r in rows
+        ]
 
     async def check_token(self) -> bool:
         if settings.uzum_mock:

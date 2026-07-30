@@ -138,3 +138,32 @@ def mock_expenses() -> list[dict]:
         {"name": "Qaytarilgan", "source": "REFUND", "amount": 23_250,
          "outcome": False, "status": "REFUNDED"},
     ]
+
+
+def mock_fbo_invoices() -> list[dict]:
+    """Test uchun FBO yuk xatlari."""
+    return [
+        {"id": 9001, "number": 900123, "shop_id": 79873,
+         "shop_name": "SENSOR o'yinchoqlar",
+         "status_value": "ACCEPTED", "status_label": "Принята",
+         "total_price": 4_200_000, "total_to_stock": 60,
+         "total_accepted": 58, "date_created": "2026-07-25T10:00:00",
+         "date_accepted": "2026-07-27T14:00:00"},
+        {"id": 9002, "number": 900145, "shop_id": 79873,
+         "shop_name": "SENSOR o'yinchoqlar",
+         "status_value": "IN_PROGRESS", "status_label": "В обработке",
+         "total_price": 1_850_000, "total_to_stock": 25,
+         "total_accepted": 0, "date_created": "2026-07-29T09:00:00",
+         "date_accepted": None},
+    ]
+
+
+def mock_fbo_invoice_products() -> list[dict]:
+    return [
+        {"sku": "SEENSOR-KUBIK", "name": "Ko'zguli kubik",
+         "to_stock": 20, "accepted": 20, "purchase_price": 18000},
+        {"sku": "SEENSOR-GIPS-ALYJ", "name": "Gips figuralar",
+         "to_stock": 25, "accepted": 23, "purchase_price": 14000},
+        {"sku": "SEENSOR-PAZL", "name": "Yog'och pazl",
+         "to_stock": 15, "accepted": 15, "purchase_price": 9500},
+    ]

@@ -67,6 +67,7 @@ async def cmd_help(message: Message, employee: dict | None) -> None:
         "/shosh — muddati kam qolganlar 🔥\n"
         "/tahlil — muammolarni topish va tahlil 🔍\n"
         "/bloklangan — bloklangan (yo'qolgan) tovarlar 🚫\n"
+        "/fboyuk — FBO yuk xatlari 🚛\n"
         "/yorliqlar — hamma buyurtma uchun QR/yorliq 🏷\n"
         "/aktlar — postavka aktlari, mahsulot va PDF 📋\n"
         "/report — qisqa hisobot\n"

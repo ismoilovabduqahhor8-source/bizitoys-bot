@@ -7,7 +7,13 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from app.integrations.base import ApiError
 from app.config import settings
@@ -374,3 +380,80 @@ async def cmd_blocked(message: Message) -> None:
 
     lines.append(f"<i>→ {found['tavsiya']}</i>")
     await wait.edit_text("\n".join(lines))
+
+
+@router.message(Command("fboyuk"))
+@router.message(F.text == "🚛 FBO yuk xatlari")
+async def cmd_fbo_invoices(message: Message) -> None:
+    """
+    FBO yuk xatlari — Uzum omboriga jo'natilgan tovar partiyalari.
+
+    DIQQAT: bu FBS aktidan (postavka) BUTUNLAY BOSHQA narsa. FBS
+    aktida "buyurtma"lar bo'ladi, bu yerda esa "mahsulot" — qancha
+    dona jo'natilgan va qanchasi Uzum tomonidan qabul qilingan.
+    """
+    wait = await message.answer("⏳ FBO yuk xatlari olinmoqda…")
+    try:
+        invoices = await uzum.get_fbo_invoices()
+    except ApiError as e:
+        await wait.edit_text(f"⚠️ Olinmadi.\n<code>{e}</code>")
+        return
+
+    if not invoices:
+        await wait.edit_text("FBO yuk xati topilmadi.")
+        return
+
+    await wait.edit_text(f"🚛 <b>FBO yuk xatlari — {len(invoices)} ta</b>")
+
+    for inv in invoices[:10]:
+        diff = inv["total_to_stock"] - inv["total_accepted"]
+        lines = [
+            f"📦 <b>Yuk xati № {inv['number']}</b>",
+            f"🏪 {inv['shop_name']}",
+            f"📋 Holati: {inv['status_label']}",
+            f"💰 Qiymati: {inv['total_price']:,}".replace(",", " ") + " so'm",
+            "",
+            f"📤 Jo'natilgan: <b>{inv['total_to_stock']}</b> dona",
+            f"📥 Qabul qilingan: <b>{inv['total_accepted']}</b> dona",
+        ]
+        if inv["status_value"] == "ACCEPTED" and diff > 0:
+            lines.append(f"⚠️ <b>Farq: {diff} dona yo'qolgan yoki rad etilgan</b>")
+        elif inv["status_value"] != "ACCEPTED" and diff:
+            lines.append(f"⏳ Hali qabul qilinmoqda ({diff} dona kutilmoqda)")
+
+        await message.answer(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="📦 Mahsulotlar",
+                    callback_data=f"fboprod:{inv['shop_id']}:{inv['id']}",
+                )
+            ]]),
+        )
+
+
+@router.callback_query(F.data.startswith("fboprod:"))
+async def cb_fbo_products(callback: CallbackQuery) -> None:
+    """FBO yuk xatidagi mahsulotlar ro'yxati — soni bilan."""
+    _, shop_id, invoice_id = callback.data.split(":", 2)
+    await callback.answer("Mahsulotlar so'ralmoqda…")
+
+    try:
+        products = await uzum.get_fbo_invoice_products(int(shop_id), invoice_id)
+    except ApiError as e:
+        await callback.message.answer(f"⚠️ Olinmadi.\n<code>{e}</code>")
+        return
+
+    if not products:
+        await callback.message.answer("Mahsulot topilmadi.")
+        return
+
+    lines = [f"📦 <b>Yuk xati № {invoice_id} — mahsulotlar</b>", ""]
+    for p in products:
+        mark = "✅" if p["accepted"] >= p["to_stock"] else "⚠️"
+        lines.append(
+            f"{mark} <b>{p['name'][:40]}</b>\n"
+            f"   SKU: <code>{p['sku']}</code>\n"
+            f"   Jo'natilgan: {p['to_stock']} · Qabul qilingan: {p['accepted']}"
+        )
+    await callback.message.answer("\n\n".join(lines))
