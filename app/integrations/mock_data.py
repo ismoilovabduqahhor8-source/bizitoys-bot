@@ -141,7 +141,15 @@ def mock_expenses() -> list[dict]:
 
 
 def mock_fbo_invoices() -> list[dict]:
-    """Test uchun FBO yuk xatlari — bir nechta do'kondan."""
+    """Test uchun FBO yuk xatlari — bir nechta do'kondan, mahsulotlar bilan."""
+    _prods = [
+        {"sku": "SEENSOR-KUBIK", "name": "Ko'zguli kubik",
+         "to_stock": 20, "accepted": 20, "purchase_price": 18000},
+        {"sku": "SEENSOR-GIPS-ALYJ", "name": "Gips figuralar",
+         "to_stock": 25, "accepted": 23, "purchase_price": 14000},
+        {"sku": "SEENSOR-PAZL", "name": "Yog'och pazl",
+         "to_stock": 15, "accepted": 15, "purchase_price": 9500},
+    ]
     return [
         {"id": 9001, "number": "УЗ-770043", "internal_number": 900123,
          "shop_id": 79873, "shop_name": "SENSOR o'yinchoqlar",
@@ -149,26 +157,26 @@ def mock_fbo_invoices() -> list[dict]:
          "total_price": 4_200_000, "total_to_stock": 60,
          "total_accepted": 58, "date_created": "2026-07-25T10:00:00",
          "date_accepted": "2026-07-27T14:00:00",
-         "delivery_certificate": ""},
+         "delivery_certificate": "", "products": _prods[:1]},
         {"id": 9002, "number": "УЗ-770145", "internal_number": 900145,
          "shop_id": 79873, "shop_name": "SENSOR o'yinchoqlar",
          "status_value": "IN_PROGRESS", "status_label": "В обработке",
          "total_price": 1_850_000, "total_to_stock": 25,
          "total_accepted": 0, "date_created": "2026-07-29T09:00:00",
          "date_accepted": None,
-         "delivery_certificate": "https://example.com/cert/9002.pdf"},
+         "delivery_certificate": "https://example.com/cert/9002.pdf", "products": _prods},
         {"id": 9003, "number": "УЗ-771200", "internal_number": 901200,
          "shop_id": 77419, "shop_name": "KONSTOVAR Arzon",
          "status_value": "CREATED", "status_label": "Создана",
          "total_price": 980_000, "total_to_stock": 14,
          "total_accepted": 0, "date_created": "2026-07-29T11:00:00",
-         "date_accepted": None, "delivery_certificate": ""},
+         "date_accepted": None, "delivery_certificate": "", "products": _prods[:2]},
         {"id": 9004, "number": "УЗ-771300", "internal_number": 901300,
          "shop_id": 123074, "shop_name": "NOVIRA",
          "status_value": "CREATED", "status_label": "Создана",
          "total_price": 540_000, "total_to_stock": 9,
          "total_accepted": 0, "date_created": "2026-07-29T12:00:00",
-         "date_accepted": None, "delivery_certificate": ""},
+         "date_accepted": None, "delivery_certificate": "", "products": _prods[:1]},
     ]
 
 

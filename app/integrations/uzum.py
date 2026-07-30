@@ -65,6 +65,11 @@ ENDPOINTS = {
     # omboriga jo'natiladigan yuk xatlari (накладные поставки FBO)
     "fbo_invoices": f"{PREFIX}/v1/shop/{{shop_id}}/invoice",
     "fbo_invoice_products": f"{PREFIX}/v1/shop/{{shop_id}}/invoice/products",
+    # Yagona manzil — BARCHA do'konlarni bitta so'rovda qaytaradi va
+    # mahsulotlarni ham o'zida olib keladi (alohida so'rov shart emas).
+    # Bundan tashqari "deliveryCertificate" (yetkazishni tasdiqlovchi
+    # HUJJAT) maydoni ham shu yerda — bu Uzumning o'z hujjati.
+    "invoices_all": f"{PREFIX}/v1/invoice",
 }
 
 # ============================================================
@@ -746,60 +751,69 @@ class UzumClient(BaseClient):
         self, shop_ids: list[int] | None = None, size: int = 50
     ) -> tuple[list[dict[str, Any]], list[str]]:
         """
-        FBO yuk xatlari ro'yxati — BARCHA do'konlar bo'yicha.
+        FBO yuk xatlari — BARCHA do'konlar bo'yicha, BITTA so'rovda.
 
-        Qaytaradi: (yuk_xatlari, tashxis).
+        /v1/invoice manzili do'kon bo'yicha ajratilmagan — barcha
+        do'konlarning aktlarini birga qaytaradi, va har bir akt ichida
+        mahsulotlar ro'yxati (productForInvoiceDto) ham keladi —
+        alohida so'rov shart emas.
 
-        Tashxis nima uchun? Agar biror do'konda xato bo'lsa (masalan
-        403/404), buni JIM o'tkazib yubormaymiz — foydalanuvchi buni
-        ko'rishi kerak, aks holda "nega faqat 1 ta do'kon ko'rinyapti"
-        degan savolga javob topib bo'lmaydi.
+        "deliveryCertificate" — bu Uzumning O'ZI bergan hujjat
+        (yetkazishni tasdiqlovchi), botning o'zi yasagan narsa emas.
+
+        Qaytaradi: (yuk_xatlari, tashxis — sahifalar bo'yicha).
         """
         if settings.uzum_mock:
             return mock_data.mock_fbo_invoices(), []
 
         names = await self.shop_names()
-        # MUHIM: FBO uchun har doim BARCHA do'kon tekshiriladi —
-        # UZUM_SHOP_IDS cheklovi bu yerga tegishli emas, chunki har
-        # bir do'konda FBO aktlari bo'lishi mumkin.
-        all_shops = shop_ids or list(names.keys())
-
         out: list[dict[str, Any]] = []
         diag: list[str] = []
 
-        for shop_id in all_shops:
-            shop_label = names.get(shop_id, str(shop_id))
+        page = 0
+        while page < 20:
             try:
                 raw = await self.get(
-                    ENDPOINTS["fbo_invoices"].format(shop_id=shop_id),
-                    params={"page": 0, "size": size},
+                    ENDPOINTS["invoices_all"],
+                    params={"page": page, "size": size},
                 )
             except ApiError as e:
-                diag.append(f"{shop_label}: xato — {str(e)[:80]}")
-                log.warning("FBO yuk xatlari olinmadi (do'kon %s): %s", shop_id, e)
-                continue
+                diag.append(f"{page}-sahifa: xato — {str(e)[:90]}")
+                log.warning("FBO yuk xatlari olinmadi: %s", e)
+                break
 
             rows = raw if isinstance(raw, list) else self._extract_list(
                 raw, ("content", "items", "invoices")
             )
-            diag.append(f"{shop_label}: {len(rows)} ta akt")
+            if not rows:
+                break
 
             for r in rows:
                 status = r.get("invoiceStatus") or {}
+                shop_id = r.get("shopId")
                 # Nomer sifatida TASHQI raqamni afzal ko'ramiz — bu
                 # jismoniy hujjatdagi bilan mos keladigan raqam.
-                # invoiceNumber esa Uzumning ichki raqami bo'lishi mumkin.
                 number = (
                     r.get("externalNumber")
                     or r.get("invoiceNumber")
                     or r.get("id")
                 )
+                products = [
+                    {
+                        "sku": p.get("skuTitle") or "—",
+                        "name": p.get("productTitle") or "—",
+                        "to_stock": int(p.get("quantityToStock") or 0),
+                        "accepted": int(p.get("quantityAccepted") or 0),
+                        "purchase_price": int(p.get("purchasePrice") or 0),
+                    }
+                    for p in (r.get("productForInvoiceDto") or [])
+                ]
                 out.append({
                     "id": r.get("id"),
                     "number": number,
                     "internal_number": r.get("invoiceNumber"),
                     "shop_id": shop_id,
-                    "shop_name": names.get(shop_id, ""),
+                    "shop_name": r.get("shopTitle") or names.get(shop_id, ""),
                     "status_value": status.get("value") or r.get("status") or "",
                     "status_label": status.get("text") or r.get("status") or "—",
                     "total_price": int(r.get("fullPrice") or 0),
@@ -807,8 +821,22 @@ class UzumClient(BaseClient):
                     "total_accepted": int(r.get("totalAccepted") or 0),
                     "date_created": r.get("dateCreated"),
                     "date_accepted": r.get("dateAccepted"),
+                    # Uzumning o'z hujjati — yetkazishni tasdiqlovchi.
+                    # Bo'sh bo'lsa, Uzum hali bu akt uchun hujjat
+                    # tayyorlamagan (odatda qabul qilingandan keyin
+                    # paydo bo'ladi).
                     "delivery_certificate": r.get("deliveryCertificate") or "",
+                    "products": products,
                 })
+
+            diag.append(f"{page}-sahifa: {len(rows)} ta akt")
+            if len(rows) < size:
+                break
+            page += 1
+
+        # Faqat shop_ids berilgan bo'lsa filtrlaymiz (odatda berilmaydi)
+        if shop_ids:
+            out = [i for i in out if i["shop_id"] in shop_ids]
 
         out.sort(key=lambda x: x.get("date_created") or "", reverse=True)
         return out, diag
@@ -816,7 +844,13 @@ class UzumClient(BaseClient):
     async def get_fbo_invoice_products(
         self, shop_id: int, invoice_id: Any
     ) -> list[dict[str, Any]]:
-        """Bitta FBO yuk xatidagi mahsulotlar — soni bilan."""
+        """
+        Bitta FBO yuk xatidagi mahsulotlar — soni bilan.
+
+        DIQQAT: get_fbo_invoices() endi mahsulotlarni O'ZIDA olib
+        keladi (invoice["products"]) — bu metod faqat zaxira sifatida
+        qoldirilgan, agar kelajakda alohida so'rov kerak bo'lsa.
+        """
         if settings.uzum_mock:
             return mock_data.mock_fbo_invoice_products()
 
