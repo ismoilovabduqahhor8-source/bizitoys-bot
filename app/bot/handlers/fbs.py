@@ -156,24 +156,25 @@ async def cb_top_fbo(callback: CallbackQuery, employee: dict) -> None:
     """FBO yuk xatlari — faqat hali qabul qilinmagan (yangi) aktlar."""
     await callback.answer("Yuk xatlari so'ralmoqda…")
     try:
-        await callback.message.edit_text("⏳ FBO yuk xatlari olinmoqda…")
+        await callback.message.edit_text("⏳ FBO yuk xatlari olinmoqda… (5 ta do'kon tekshirilmoqda)")
     except Exception:
         pass
 
     try:
-        invoices = await uzum.get_fbo_invoices()
+        invoices, diag = await uzum.get_fbo_invoices()
     except ApiError as e:
         await callback.message.answer(f"⚠️ Olinmadi.\n<code>{e}</code>")
         return
 
     new_ones = [i for i in invoices if _fbo_is_new(i)]
 
+    diag_lines = "\n".join(f"   • {d}" for d in diag)
     try:
         await callback.message.edit_text(
             f"<b>🚛 FBO yuk xatlari</b>\n\n"
             f"Yangi (hali qabul qilinmagan): <b>{len(new_ones)}</b> ta\n"
-            f"<i>Qabul qilingan aktlar bu yerda ko'rsatilmaydi — "
-            f"ular uchun endi hech qanday amal kerak emas.</i>"
+            f"<i>Qabul qilingan aktlar bu yerda ko'rsatilmaydi.</i>\n\n"
+            f"<b>Do'konlar bo'yicha:</b>\n{diag_lines}"
         )
     except Exception:
         pass
@@ -251,13 +252,23 @@ async def cb_fbo_excel_start(callback: CallbackQuery) -> None:
 
 @router.message(F.text, F.func(lambda m: m.from_user.id in _AWAITING_DATE))
 async def on_fbo_date(message: Message) -> None:
-    """Foydalanuvchi rejalashtirilgan sanani yozganda — Excel quriladi."""
+    """
+    Foydalanuvchi rejalashtirilgan sanani yozganda — Excel quriladi
+    va aktning o'zi ham (mavjud bo'lsa) yuboriladi.
+
+    DIQQAT: Uzum API'sida FBO yuk xati uchun alohida "PDF chop etish"
+    manzili YO'Q (FBS aktidan farqli). Faqat "deliveryCertificate"
+    degan maydon bor — bu HOL, URL yoki hujjat kodi bo'lishi mumkin.
+    Shuning uchun bot uni aniqlab, eng mos usulda yuboradi:
+        • http(s) bilan boshlansa — hujjat sifatida yuklab yuboradi
+        • aks holda — matn sifatida ko'rsatadi (o'zi qidirib topish uchun)
+    """
     shop_id, invoice_id = _AWAITING_DATE.pop(message.from_user.id)
     planned_date = (message.text or "").strip()
 
     wait = await message.answer("⏳ Excel tayyorlanmoqda…")
     try:
-        invoices = await uzum.get_fbo_invoices(shop_ids=[shop_id])
+        invoices, _ = await uzum.get_fbo_invoices(shop_ids=[shop_id])
         invoice = next((i for i in invoices if str(i["id"]) == str(invoice_id)), None)
         products = await uzum.get_fbo_invoice_products(shop_id, invoice_id)
     except ApiError as e:
@@ -285,6 +296,34 @@ async def on_fbo_date(message: Message) -> None:
             f"qo'shing.</i>"
         ),
     )
+
+    # --- Akt hujjati (bo'lsa) ---
+    cert = (invoice.get("delivery_certificate") or "").strip()
+    if not cert:
+        await message.answer(
+            "ℹ️ <i>Bu akt uchun Uzum hujjat/sertifikat bermagan — "
+            "faqat Excel yuborildi.</i>"
+        )
+        return
+
+    if cert.lower().startswith("http"):
+        try:
+            resp = await uzum.get_binary_url(cert)
+            if resp:
+                ext = "pdf" if resp[:4] == b"%PDF" else "bin"
+                await message.answer_document(
+                    BufferedInputFile(resp, filename=f"akt_{invoice['number']}.{ext}"),
+                    caption="📄 Akt hujjati",
+                )
+                return
+        except Exception as e:
+            log.warning("Akt hujjati yuklanmadi: %s", e)
+        await message.answer(f"📄 Akt hujjati havolasi:\n{cert}")
+    else:
+        await message.answer(
+            f"📄 <b>Sertifikat/hujjat kodi:</b> <code>{cert}</code>\n"
+            f"<i>Bu — Uzum bergan kod, PDF fayl emas.</i>"
+        )
 
 
 @router.message(Command("fbo"))

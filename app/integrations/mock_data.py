@@ -141,20 +141,34 @@ def mock_expenses() -> list[dict]:
 
 
 def mock_fbo_invoices() -> list[dict]:
-    """Test uchun FBO yuk xatlari."""
+    """Test uchun FBO yuk xatlari — bir nechta do'kondan."""
     return [
-        {"id": 9001, "number": 900123, "shop_id": 79873,
-         "shop_name": "SENSOR o'yinchoqlar",
+        {"id": 9001, "number": "УЗ-770043", "internal_number": 900123,
+         "shop_id": 79873, "shop_name": "SENSOR o'yinchoqlar",
          "status_value": "ACCEPTED", "status_label": "Принята",
          "total_price": 4_200_000, "total_to_stock": 60,
          "total_accepted": 58, "date_created": "2026-07-25T10:00:00",
-         "date_accepted": "2026-07-27T14:00:00"},
-        {"id": 9002, "number": 900145, "shop_id": 79873,
-         "shop_name": "SENSOR o'yinchoqlar",
+         "date_accepted": "2026-07-27T14:00:00",
+         "delivery_certificate": ""},
+        {"id": 9002, "number": "УЗ-770145", "internal_number": 900145,
+         "shop_id": 79873, "shop_name": "SENSOR o'yinchoqlar",
          "status_value": "IN_PROGRESS", "status_label": "В обработке",
          "total_price": 1_850_000, "total_to_stock": 25,
          "total_accepted": 0, "date_created": "2026-07-29T09:00:00",
-         "date_accepted": None},
+         "date_accepted": None,
+         "delivery_certificate": "https://example.com/cert/9002.pdf"},
+        {"id": 9003, "number": "УЗ-771200", "internal_number": 901200,
+         "shop_id": 77419, "shop_name": "KONSTOVAR Arzon",
+         "status_value": "CREATED", "status_label": "Создана",
+         "total_price": 980_000, "total_to_stock": 14,
+         "total_accepted": 0, "date_created": "2026-07-29T11:00:00",
+         "date_accepted": None, "delivery_certificate": ""},
+        {"id": 9004, "number": "УЗ-771300", "internal_number": 901300,
+         "shop_id": 123074, "shop_name": "NOVIRA",
+         "status_value": "CREATED", "status_label": "Создана",
+         "total_price": 540_000, "total_to_stock": 9,
+         "total_accepted": 0, "date_created": "2026-07-29T12:00:00",
+         "date_accepted": None, "delivery_certificate": ""},
     ]
 
 

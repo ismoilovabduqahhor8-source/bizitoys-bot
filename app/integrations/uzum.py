@@ -743,35 +743,61 @@ class UzumClient(BaseClient):
     #  dona jo'natilgan, qanchasi qabul qilingan).
     # ---------------------------------------------------------------
     async def get_fbo_invoices(
-        self, shop_ids: list[int] | None = None, size: int = 20
-    ) -> list[dict[str, Any]]:
-        """FBO yuk xatlari ro'yxati — barcha do'konlar bo'yicha."""
+        self, shop_ids: list[int] | None = None, size: int = 50
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """
+        FBO yuk xatlari ro'yxati — BARCHA do'konlar bo'yicha.
+
+        Qaytaradi: (yuk_xatlari, tashxis).
+
+        Tashxis nima uchun? Agar biror do'konda xato bo'lsa (masalan
+        403/404), buni JIM o'tkazib yubormaymiz — foydalanuvchi buni
+        ko'rishi kerak, aks holda "nega faqat 1 ta do'kon ko'rinyapti"
+        degan savolga javob topib bo'lmaydi.
+        """
         if settings.uzum_mock:
-            return mock_data.mock_fbo_invoices()
+            return mock_data.mock_fbo_invoices(), []
 
         names = await self.shop_names()
-        if shop_ids is None:
-            shop_ids = settings.uzum_shop_ids or list(names.keys())
+        # MUHIM: FBO uchun har doim BARCHA do'kon tekshiriladi —
+        # UZUM_SHOP_IDS cheklovi bu yerga tegishli emas, chunki har
+        # bir do'konda FBO aktlari bo'lishi mumkin.
+        all_shops = shop_ids or list(names.keys())
 
         out: list[dict[str, Any]] = []
-        for shop_id in shop_ids:
+        diag: list[str] = []
+
+        for shop_id in all_shops:
+            shop_label = names.get(shop_id, str(shop_id))
             try:
                 raw = await self.get(
                     ENDPOINTS["fbo_invoices"].format(shop_id=shop_id),
                     params={"page": 0, "size": size},
                 )
             except ApiError as e:
+                diag.append(f"{shop_label}: xato — {str(e)[:80]}")
                 log.warning("FBO yuk xatlari olinmadi (do'kon %s): %s", shop_id, e)
                 continue
 
             rows = raw if isinstance(raw, list) else self._extract_list(
                 raw, ("content", "items", "invoices")
             )
+            diag.append(f"{shop_label}: {len(rows)} ta akt")
+
             for r in rows:
                 status = r.get("invoiceStatus") or {}
+                # Nomer sifatida TASHQI raqamni afzal ko'ramiz — bu
+                # jismoniy hujjatdagi bilan mos keladigan raqam.
+                # invoiceNumber esa Uzumning ichki raqami bo'lishi mumkin.
+                number = (
+                    r.get("externalNumber")
+                    or r.get("invoiceNumber")
+                    or r.get("id")
+                )
                 out.append({
                     "id": r.get("id"),
-                    "number": r.get("invoiceNumber") or r.get("id"),
+                    "number": number,
+                    "internal_number": r.get("invoiceNumber"),
                     "shop_id": shop_id,
                     "shop_name": names.get(shop_id, ""),
                     "status_value": status.get("value") or r.get("status") or "",
@@ -781,10 +807,11 @@ class UzumClient(BaseClient):
                     "total_accepted": int(r.get("totalAccepted") or 0),
                     "date_created": r.get("dateCreated"),
                     "date_accepted": r.get("dateAccepted"),
+                    "delivery_certificate": r.get("deliveryCertificate") or "",
                 })
 
         out.sort(key=lambda x: x.get("date_created") or "", reverse=True)
-        return out
+        return out, diag
 
     async def get_fbo_invoice_products(
         self, shop_id: int, invoice_id: Any
@@ -815,6 +842,27 @@ class UzumClient(BaseClient):
             }
             for r in rows
         ]
+
+    async def get_binary_url(self, url: str) -> bytes | None:
+        """
+        Ixtiyoriy URL'dan xom baytlarni oladi — masalan
+        deliveryCertificate havolasi PDF fayl bo'lsa.
+
+        Avval Uzum tokeni bilan sinaydi (agar bu Uzum domenida
+        bo'lsa), keyin tokensiz — havola boshqa (masalan bulutli
+        saqlash) xizmatga tegishli bo'lishi mumkin.
+        """
+        import httpx
+
+        for headers in (self.headers, {}):
+            try:
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                    r = await client.get(url, headers=headers)
+                if r.status_code == 200 and r.content:
+                    return r.content
+            except Exception as e:
+                log.warning("Binary URL olinmadi (%s): %s", url[:60], e)
+        return None
 
     async def check_token(self) -> bool:
         if settings.uzum_mock:

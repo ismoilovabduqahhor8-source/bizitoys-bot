@@ -426,7 +426,7 @@ async def check_fbo_invoices(bot: Bot) -> None:
     from app.integrations.uzum import uzum
 
     try:
-        invoices = await uzum.get_fbo_invoices()
+        invoices, _diag = await uzum.get_fbo_invoices()
     except Exception as e:
         log.warning("FBO holatini tekshirishda xato: %s", e)
         return
