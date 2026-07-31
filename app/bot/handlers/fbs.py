@@ -136,7 +136,7 @@ async def cb_top_fbs(callback: CallbackQuery, employee: dict) -> None:
 
 # "Qaysi sanaga rejalashtirilgan?" javobini kutayotgan foydalanuvchilar.
 # {telegram_id: (shop_id, invoice_id)}
-_AWAITING_DATE: dict[int, tuple[int, str]] = {}
+_AWAITING_DATE: set[int] = set()
 
 # Bu statuslarga ega akt ENDI YANGI emas — Excel/bildirishnoma
 # kerak emas (Uzum allaqachon qabul qilgan yoki qilyapti).
@@ -182,24 +182,35 @@ async def cb_top_fbo(callback: CallbackQuery, employee: dict) -> None:
     if not new_ones:
         return
 
+    # BITTA Excel tugmasi — BARCHA yangi aktlar uchun, bitta faylda.
+    # Ilgari har aktda alohida tugma bor edi (har biri alohida fayl
+    # yasardi) — endi bitta bosishda hamma akt bitta jadvalga tushadi.
+    await callback.message.answer(
+        f"📗 <b>{len(new_ones)} ta akt uchun Excel</b>\n"
+        f"<i>Barchasi BITTA faylga yig'iladi.</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=f"📗 Excel — barcha {len(new_ones)} ta akt",
+                callback_data="fboxls_all",
+            )
+        ]]),
+    )
+
     for inv in new_ones[:10]:
-        rows = [[
-            InlineKeyboardButton(
-                text="📦 Mahsulotlar",
-                callback_data=f"fboprod:{inv['shop_id']}:{inv['id']}",
-            ),
-            InlineKeyboardButton(
-                text="📗 Excel (zelyoniy koridor)",
-                callback_data=f"fboxls:{inv['shop_id']}:{inv['id']}",
-            ),
-        ]]
         await callback.message.answer(
             f"📦 <b>Yuk xati № {inv['number']}</b>\n"
             f"🏪 {inv['shop_name']}\n"
             f"📋 Holati: {inv['status_label']}\n"
             f"💰 Qiymati: {inv['total_price']:,} so'm\n".replace(",", " ")
-            + f"📤 Jo'natilgan: <b>{inv['total_to_stock']}</b> dona",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            + f"📤 Jo'natilgan: <b>{inv['total_to_stock']}</b> dona\n\n"
+            + "<i>ℹ️ Bu aktni bekor qilish uchun Uzum API'sida imkoniyat "
+              "yo'q — faqat Uzum kabinetida qo'lda bekor qilinadi.</i>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="📦 Mahsulotlar",
+                    callback_data=f"fboprod:{inv['shop_id']}:{inv['id']}",
+                ),
+            ]]),
         )
 
 
@@ -238,38 +249,38 @@ async def cb_fbo_products(callback: CallbackQuery) -> None:
     await callback.message.answer("\n\n".join(lines))
 
 
-@router.callback_query(F.data.startswith("fboxls:"))
+@router.callback_query(F.data == "fboxls_all")
 async def cb_fbo_excel_start(callback: CallbackQuery) -> None:
     """
-    Excel yaratishni boshlaydi — avval rejalashtirilgan sanani so'raydi.
+    Excel yaratishni boshlaydi — BARCHA yangi aktlar uchun, bitta
+    faylda. Avval rejalashtirilgan sanani so'raydi (hammasiga bir xil).
 
     Fayl NOMI bugungi sanadan olinadi (avtomatik), lekin jadval
     ICHIDAGI "Планируемая дата отгрузки" ustuni FOYDALANUVCHI
     bergan sana bilan to'ldiriladi — bular ikki xil narsa.
     """
-    _, shop_id, invoice_id = callback.data.split(":", 2)
     await callback.answer()
-    _AWAITING_DATE[callback.from_user.id] = (int(shop_id), invoice_id)
+    _AWAITING_DATE.add(callback.from_user.id)
     await callback.message.answer(
         "📗 <b>Zelyoniy koridor — Excel</b>\n\n"
         "Qaysi sanaga rejalashtirilgan? Masalan: <code>25.07.2026</code>\n\n"
-        "<i>Bu — jadvaldagi «Планируемая дата отгрузки» ustuni uchun. "
-        "Nakladnoyning haqiqiy sanasi Uzumdan avtomatik olinadi.</i>"
+        "<i>Bu sana BARCHA aktlarga bir xil qo'yiladi — jadvaldagi "
+        "«Планируемая дата отгрузки» ustuni uchun. Har aktning haqiqiy "
+        "nakladnoy sanasi Uzumdan alohida-alohida olinadi.</i>"
     )
 
 
 @router.message(F.text, F.func(lambda m: m.from_user.id in _AWAITING_DATE))
 async def on_fbo_date(message: Message) -> None:
     """
-    Foydalanuvchi rejalashtirilgan sanani yozganda — Excel quriladi
-    va Uzumning O'Z hujjati (deliveryCertificate) bo'lsa, u yuboriladi.
+    Foydalanuvchi rejalashtirilgan sanani yozganda — BARCHA yangi
+    aktlar BITTA Excel faylida quriladi, va har birining Uzum'ning
+    o'z hujjati (deliveryCertificate) bo'lsa, u alohida yuboriladi.
 
-    MUHIM: bu yerda BOT HECH QANDAY PDF YASAMAYDI. Faqat Uzum bergan
-    haqiqiy hujjat yuboriladi. Agar Uzum hali hujjat bermagan bo'lsa
-    (odatda akt qabul qilingandan keyin paydo bo'ladi), bu ochiq
-    aytiladi — o'rniga soxta narsa taqdim etilmaydi.
+    MUHIM: bu yerda BOT HECH QANDAY PDF/HUJJAT YASAMAYDI. Faqat Uzum
+    bergan haqiqiy hujjatlar yuboriladi. Bo'lmasa — ochiq aytiladi.
     """
-    shop_id, invoice_id = _AWAITING_DATE.pop(message.from_user.id)
+    _AWAITING_DATE.discard(message.from_user.id)
     planned_date = (message.text or "").strip()
 
     wait = await message.answer("⏳ Ma'lumot olinmoqda…")
@@ -279,61 +290,60 @@ async def on_fbo_date(message: Message) -> None:
         await wait.edit_text(f"⚠️ Ma'lumot olinmadi.\n<code>{e}</code>")
         return
 
-    invoice = next((i for i in invoices if str(i["id"]) == str(invoice_id)), None)
-    if not invoice:
-        await wait.edit_text("⚠️ Bu yuk xati topilmadi.")
+    new_ones = [i for i in invoices if _fbo_is_new(i)]
+    if not new_ones:
+        await wait.edit_text("⚠️ Yangi akt topilmadi.")
         return
-
-    products = invoice.get("products") or []
 
     from app.services import fbo_excel
     from aiogram.types import BufferedInputFile
     from datetime import datetime as _dt
 
-    xlsx = fbo_excel.build(invoice, products, planned_date)
+    xlsx = fbo_excel.build_many(new_ones, planned_date)
     fname = f"zelyoniy_koridor_{_dt.now():%d.%m.%Y}.xlsx"
 
     await wait.delete()
     await message.answer_document(
         BufferedInputFile(xlsx, filename=fname),
         caption=(
-            f"📗 Yuk xati № {invoice['number']}\n"
+            f"📗 <b>{len(new_ones)} ta akt — bitta faylda</b>\n"
             f"Rejalashtirilgan sana: {planned_date}\n\n"
-            f"<i>«Ссылка на акты» ustuni bo'sh — havolani o'zingiz "
+            f"<i>«Ссылка на акты» ustuni bo'sh — havolalarni o'zingiz "
             f"qo'shing.</i>"
         ),
     )
 
-    # --- Uzumning o'z hujjati (deliveryCertificate) ---
+    # --- Uzumning o'z hujjatlari (deliveryCertificate) — bor bo'lganlari ---
     #
-    # Bu — Uzum bergan HAQIQIY akt hujjati, bot yasagan narsa emas.
-    # Odatda faqat akt QABUL QILINGANDAN keyin paydo bo'ladi.
-    cert = (invoice.get("delivery_certificate") or "").strip()
-    if not cert:
+    # Bular — Uzum bergan HAQIQIY akt hujjatlari, bot yasagan narsa
+    # emas. Odatda faqat akt QABUL QILINGANDAN keyin paydo bo'ladi.
+    with_cert = [i for i in new_ones if (i.get("delivery_certificate") or "").strip()]
+    if not with_cert:
         await message.answer(
-            "ℹ️ <b>Uzum bu akt uchun hali hujjat bermagan.</b>\n\n"
-            "<i>Bu odatda akt QABUL QILINGANDAN keyin paydo bo'ladi. "
-            "Hozircha faqat Excel tayyor.</i>"
+            "ℹ️ <i>Hech qaysi yangi akt uchun Uzum hali hujjat bermagan "
+            "— bu odatda akt QABUL QILINGANDAN keyin paydo bo'ladi.</i>"
         )
         return
 
-    if cert.lower().startswith("http"):
-        try:
-            resp = await uzum.get_binary_url(cert)
-            if resp:
-                ext = "pdf" if resp[:4] == b"%PDF" else "bin"
-                await message.answer_document(
-                    BufferedInputFile(resp, filename=f"akt_{invoice['number']}.{ext}"),
-                    caption="📄 Akt hujjati (Uzum bergan)",
-                )
-                return
-        except Exception as e:
-            log.warning("Akt hujjati yuklanmadi: %s", e)
-        await message.answer(f"📄 Akt hujjati havolasi:\n{cert}")
-    else:
-        await message.answer(
-            f"📄 <b>Akt hujjat kodi (Uzum bergan):</b> <code>{cert}</code>"
-        )
+    for invoice in with_cert:
+        cert = invoice["delivery_certificate"].strip()
+        if cert.lower().startswith("http"):
+            try:
+                resp = await uzum.get_binary_url(cert)
+                if resp:
+                    ext = "pdf" if resp[:4] == b"%PDF" else "bin"
+                    await message.answer_document(
+                        BufferedInputFile(resp, filename=f"akt_{invoice['number']}.{ext}"),
+                        caption=f"📄 Akt № {invoice['number']} hujjati (Uzum bergan)",
+                    )
+                    continue
+            except Exception as e:
+                log.warning("Akt hujjati yuklanmadi: %s", e)
+            await message.answer(f"📄 Akt № {invoice['number']} hujjati havolasi:\n{cert}")
+        else:
+            await message.answer(
+                f"📄 <b>Akt № {invoice['number']} hujjat kodi:</b> <code>{cert}</code>"
+            )
 
 
 @router.message(Command("fbo"))

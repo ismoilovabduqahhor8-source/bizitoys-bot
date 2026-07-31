@@ -19,7 +19,7 @@ aytadi — chunki nima e'lon qilinganini bazada saqlaydi.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -356,14 +356,18 @@ async def hourly_report(bot: Bot) -> None:
     """
     Soatlik hisobot — kun bo'yi (08:00–23:00), faqat adminlarga.
 
-    MUHIM: bu KUMULYATIV emas — aynan SHU SOAT ichidagi sotuv.
-    Masalan soat 15:00 da yuborilgan hisobot 14:00 dan 15:00
-    gachagi sotuvni ko'rsatadi, kun boshidan hozirgacha emas.
+    MUHIM — usul o'zgardi: bu SOATGA ALOHIDA so'rov EMAS. Sabab: Uzum
+    moliya API'si soat darajasidagi aniq filtrni to'liq qo'llab-
+    quvvatlamasligi mumkin (bugun soniya-darajasidagi sanada ham
+    shunga o'xshash muammo chiqqan edi) — natijada "soatlik" so'rov
+    aslida kun boshidan hozirgacha bo'lgan HAMMA narsani qaytarib,
+    hisobot soatdan-soatga o'sib borardi.
 
-    Ma'lumot bo'lmasa (shu soatda hech narsa sotilmagan bo'lsa),
-    jim o'tkazib yuboriladi — bo'sh hisobot yuborish foydasiz.
+    Endi bunday: kun boshidan HOZIRGACHA jami olinadi, va oldingi
+    soatda saqlangan jamidan FARQI hisoblanadi. Bu farq — aynan shu
+    soatning o'zi, Uzum sanani qanday filtrlashidan qat'i nazar
+    to'g'ri chiqadi.
     """
-    from datetime import timedelta
     from aiogram.types import BufferedInputFile
     from app.services import report, report_image
 
@@ -373,34 +377,60 @@ async def hourly_report(bot: Bot) -> None:
     if not admins:
         return
 
-    hour_end = datetime.now(TZ).replace(minute=0, second=0, microsecond=0)
-    hour_start = hour_end - timedelta(hours=1)
-    title = f"{hour_start:%H:%M} – {hour_end:%H:%M}"
+    now = datetime.now(TZ)
+    hour_end = now.replace(minute=0, second=0, microsecond=0)
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_str = now.strftime("%Y-%m-%d")
 
     try:
-        rep = await report.build_between(hour_start, hour_end, title)
-        full = await report.build_full_between(hour_start, hour_end, title)
+        cum_rep = await report.build_between(day_start, hour_end, "kun boshidan")
+        cum_full = await report.build_full_between(day_start, hour_end, "kun boshidan")
     except Exception as e:
         log.warning("Soatlik hisobot tayyorlanmadi: %s", e)
         return
 
-    if not rep["items"]:
-        log.info("Soatlik hisobot: %s oralig'ida sotuv yo'q", title)
+    # Oldingi saqlangan jamini o'qiymiz — kun boshlansa (sana o'zgargan
+    # bo'lsa) 0 dan boshlaymiz.
+    import json
+    raw = await repo.kv_get("hourly_cumulative")
+    prev = json.loads(raw) if raw else {}
+    if prev.get("date") != today_str:
+        prev = {"date": today_str, "qty": 0, "revenue": 0, "payout": 0, "count": 0}
+
+    cur_qty = cum_rep["total"]["qty"]
+    cur_revenue = cum_rep["total"]["revenue"]
+    cur_payout = cum_full["accepted"]["payout"] + cum_full["completed"]["payout"]
+    cur_count = cum_full["accepted"]["count"] + cum_full["completed"]["count"]
+
+    delta_qty = max(cur_qty - prev.get("qty", 0), 0)
+    delta_revenue = max(cur_revenue - prev.get("revenue", 0), 0)
+    delta_payout = max(cur_payout - prev.get("payout", 0), 0)
+    delta_count = max(cur_count - prev.get("count", 0), 0)
+
+    # Yangi jamini saqlaymiz — keyingi soat shundan farqni hisoblaydi
+    await repo.kv_set("hourly_cumulative", json.dumps({
+        "date": today_str, "qty": cur_qty, "revenue": cur_revenue,
+        "payout": cur_payout, "count": cur_count,
+    }))
+
+    if delta_qty == 0 and delta_revenue == 0:
+        log.info("Soatlik hisobot: %s — bu soatda sotuv yo'q", hour_end.strftime("%H:%M"))
         return
 
-    img = report_image.render(rep)
-    text = f"🕐 <b>Soatlik sotuv</b>\n" + report.as_full_text(full)
+    hour_start = hour_end - timedelta(hours=1)
+    title = f"{hour_start:%H:%M} – {hour_end:%H:%M}"
+
+    text = (
+        f"🕐 <b>Soatlik sotuv — {title}</b>\n\n"
+        f"📥 Buyurtmalar soni: <b>{delta_count}</b>\n"
+        f"📦 Sotilgan tovarlar soni: <b>{delta_qty}</b>\n"
+        f"💰 Daromad: <b>{report.fmt(delta_revenue)}</b> so'm\n"
+        f"🏦 Chiqarishga: <b>{report.fmt(delta_payout)}</b> so'm"
+    )
 
     for a in admins:
         uid = a["telegram_id"]
         try:
-            if img:
-                await bot.send_photo(
-                    uid,
-                    BufferedInputFile(
-                        img, filename=f"soatlik_{hour_end:%Y-%m-%d_%H}.png"
-                    ),
-                )
             await bot.send_message(uid, text)
         except Exception as e:
             log.warning("Soatlik hisobot yuborilmadi (%s): %s", uid, e)

@@ -55,13 +55,18 @@ def build(
     products: list[dict[str, Any]],
     planned_date: str,
 ) -> bytes:
-    """
-    Bitta FBO yuk xati uchun Excel faylini quradi.
+    """Bitta FBO yuk xati uchun Excel — orqaga moslik uchun saqlanadi."""
+    return build_many([invoice], planned_date)
 
-    invoice      — uzum.get_fbo_invoices() dan bitta yozuv
-    products     — uzum.get_fbo_invoice_products() natijasi
-    planned_date — foydalanuvchi bergan sana, matn ko'rinishida
-                   (masalan "25.07.2026") — o'zgartirilmasdan yoziladi
+
+def build_many(invoices: list[dict[str, Any]], planned_date: str) -> bytes:
+    """
+    BARCHA (odatda yangi/qabul qilinmagan) FBO yuk xatlari — BITTA
+    Excel faylida, har biri alohida qatorda.
+
+    "Планируемая дата отгрузки" — hammasiga BIR XIL, foydalanuvchi
+    bergan sana. Har aktning o'z "Дата отгрузки (по накладной)" esa
+    Uzumdan alohida-alohida olinadi.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -82,30 +87,32 @@ def build(
         cell.fill = header_fill
         cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
 
-    # Mahsulot tarkibi — "Nomi x soni" ko'rinishida, vergul bilan
-    composition = "; ".join(
-        f"{p['name']} x{p['to_stock']}" for p in products
-    ) if products else ""
+    for row_i, invoice in enumerate(invoices, start=2):
+        products = invoice.get("products") or []
+        composition = "; ".join(
+            f"{p['name']} x{p['to_stock']}" for p in products
+        ) if products else ""
+        sku_count = len(products) if products else 0
+        total_units = (
+            sum(p["to_stock"] for p in products)
+            if products else invoice.get("total_to_stock", 0)
+        )
 
-    sku_count = len(products) if products else 0
-    total_units = sum(p["to_stock"] for p in products) if products else invoice.get("total_to_stock", 0)
+        row = [
+            composition,
+            invoice.get("number"),
+            "",  # Ссылка на акты — qo'lda to'ldiriladi
+            sku_count,
+            total_units,
+            invoice.get("total_price", 0),
+            _fmt_date(invoice.get("date_created")),
+            planned_date,
+        ]
+        for col, val in enumerate(row, start=1):
+            cell = ws.cell(row=row_i, column=col, value=val)
+            cell.font = body_font
+            cell.alignment = wrap
 
-    row = [
-        composition,
-        invoice.get("number"),
-        "",  # Ссылка на акты — qo'lda to'ldiriladi
-        sku_count,
-        total_units,
-        invoice.get("total_price", 0),
-        _fmt_date(invoice.get("date_created")),
-        planned_date,
-    ]
-    for col, val in enumerate(row, start=1):
-        cell = ws.cell(row=2, column=col, value=val)
-        cell.font = body_font
-        cell.alignment = wrap
-
-    # Ustun kengliklari — o'qish qulay bo'lishi uchun
     widths = [45, 14, 22, 12, 16, 16, 20, 20]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
