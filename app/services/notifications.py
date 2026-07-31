@@ -363,11 +363,14 @@ async def hourly_report(bot: Bot) -> None:
     aslida kun boshidan hozirgacha bo'lgan HAMMA narsani qaytarib,
     hisobot soatdan-soatga o'sib borardi.
 
-    Endi bunday: kun boshidan HOZIRGACHA jami olinadi, va oldingi
-    soatda saqlangan jamidan FARQI hisoblanadi. Bu farq — aynan shu
-    soatning o'zi, Uzum sanani qanday filtrlashidan qat'i nazar
-    to'g'ri chiqadi.
+    Endi bunday: kun boshidan HOZIRGACHA jami olinadi (ham umumiy,
+    ham HAR SKU bo'yicha), va oldingi soatda saqlangan jamidan
+    FARQI hisoblanadi — bu farq aynan shu soatning o'zi, Uzum sanani
+    qanday filtrlashidan qat'i nazar to'g'ri chiqadi. Har SKU bo'yicha
+    ham saqlanadi — shunday qilib rasm (jadval) ham /hisobot dagidek
+    chiqariladi.
     """
+    import json
     from aiogram.types import BufferedInputFile
     from app.services import report, report_image
 
@@ -389,13 +392,14 @@ async def hourly_report(bot: Bot) -> None:
         log.warning("Soatlik hisobot tayyorlanmadi: %s", e)
         return
 
-    # Oldingi saqlangan jamini o'qiymiz — kun boshlansa (sana o'zgargan
-    # bo'lsa) 0 dan boshlaymiz.
-    import json
+    # Oldingi saqlangan jamini o'qiymiz (umumiy va HAR SKU bo'yicha) —
+    # kun boshlansa (sana o'zgargan bo'lsa) 0 dan boshlaymiz.
     raw = await repo.kv_get("hourly_cumulative")
     prev = json.loads(raw) if raw else {}
     if prev.get("date") != today_str:
-        prev = {"date": today_str, "qty": 0, "revenue": 0, "payout": 0, "count": 0}
+        prev = {"date": today_str, "qty": 0, "revenue": 0, "payout": 0,
+                "count": 0, "sku": {}}
+    prev_sku: dict[str, dict[str, int]] = prev.get("sku", {})
 
     cur_qty = cum_rep["total"]["qty"]
     cur_revenue = cum_rep["total"]["revenue"]
@@ -407,10 +411,27 @@ async def hourly_report(bot: Bot) -> None:
     delta_payout = max(cur_payout - prev.get("payout", 0), 0)
     delta_count = max(cur_count - prev.get("count", 0), 0)
 
+    # --- Har SKU bo'yicha farq — rasm (jadval) uchun ---
+    delta_items = []
+    cur_sku: dict[str, dict[str, int]] = {}
+    for it in cum_rep["items"]:
+        key = it["sku"]
+        cur_sku[key] = {"qty": it["qty"], "revenue": it["revenue"], "payout": it["payout"]}
+        before = prev_sku.get(key, {"qty": 0, "revenue": 0, "payout": 0})
+        d_qty = max(it["qty"] - before.get("qty", 0), 0)
+        if d_qty <= 0:
+            continue
+        d_rev = max(it["revenue"] - before.get("revenue", 0), 0)
+        d_pay = max(it["payout"] - before.get("payout", 0), 0)
+        delta_items.append({
+            "sku": it["sku"], "name": it["name"], "qty": d_qty,
+            "revenue": d_rev, "payout": d_pay, "cost": 0, "has_cost": False,
+        })
+
     # Yangi jamini saqlaymiz — keyingi soat shundan farqni hisoblaydi
     await repo.kv_set("hourly_cumulative", json.dumps({
         "date": today_str, "qty": cur_qty, "revenue": cur_revenue,
-        "payout": cur_payout, "count": cur_count,
+        "payout": cur_payout, "count": cur_count, "sku": cur_sku,
     }))
 
     if delta_qty == 0 and delta_revenue == 0:
@@ -419,6 +440,23 @@ async def hourly_report(bot: Bot) -> None:
 
     hour_start = hour_end - timedelta(hours=1)
     title = f"{hour_start:%H:%M} – {hour_end:%H:%M}"
+
+    # --- Rasm — xuddi /hisobot dagi jadval, shu soatlik farq bilan ---
+    img = None
+    if delta_items:
+        synthetic_rep = {
+            "date": hour_end,
+            "title": title,
+            "items": delta_items,
+            "total": {
+                "qty": delta_qty, "revenue": delta_revenue,
+                "payout": delta_payout, "cost": 0, "profit": 0, "roi": 0,
+            },
+        }
+        try:
+            img = report_image.render(synthetic_rep)
+        except Exception as e:
+            log.warning("Soatlik rasm chizilmadi: %s", e)
 
     text = (
         f"🕐 <b>Soatlik sotuv — {title}</b>\n\n"
@@ -431,6 +469,11 @@ async def hourly_report(bot: Bot) -> None:
     for a in admins:
         uid = a["telegram_id"]
         try:
+            if img:
+                await bot.send_photo(
+                    uid,
+                    BufferedInputFile(img, filename=f"soatlik_{hour_end:%Y-%m-%d_%H}.png"),
+                )
             await bot.send_message(uid, text)
         except Exception as e:
             log.warning("Soatlik hisobot yuborilmadi (%s): %s", uid, e)

@@ -170,7 +170,6 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     mh, mm = _parse_hhmm(settings.morning_report_at, (9, 30))
     eh, em = _parse_hhmm(settings.evening_report_at, (18, 30))
-    sh, sm = _parse_hhmm(settings.stock_check_at, (10, 0))
 
     # --- Kunlik hisobotlar ---
     sched.add_job(
@@ -253,13 +252,12 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         id="check_fbo_invoices",
     )
 
-    # --- Ombor tekshiruvi ---
-    sched.add_job(
-        check_low_stock,
-        CronTrigger(hour=sh, minute=sm, timezone=tz),
-        args=[bot],
-        id="low_stock",
-    )
+    # DIQQAT: "Ombor tekshiruvi" (check_low_stock) OLIB TASHLANDI.
+    # Sabab: bu Billz'dan ma'lumot olardi, Billz esa hali ulanmagan
+    # (test/soxta rejimda). Natijada bot HAQIQIY bo'lmagan "qoldiq
+    # kam" ogohlantirishlarini yuborardi. Billz ulanganda yoki
+    # Uzum'ning haqiqiy ma'lumotiga (get_product_stats) o'tkazilgan
+    # holda qaytarish mumkin.
 
     sched.start()
     log.info("Scheduler ishga tushdi (%s):", settings.timezone)
