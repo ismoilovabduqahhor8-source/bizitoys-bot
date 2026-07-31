@@ -177,6 +177,12 @@ def mock_fbo_invoices() -> list[dict]:
          "total_price": 540_000, "total_to_stock": 9,
          "total_accepted": 0, "date_created": "2026-07-29T12:00:00",
          "date_accepted": None, "delivery_certificate": "", "products": _prods[:1]},
+        {"id": 9005, "number": "УЗ-771999", "internal_number": 901999,
+         "shop_id": 97583, "shop_name": "IGRUSHKIRAZVIVASHKI",
+         "status_value": "CANCELLED", "status_label": "Отменена",
+         "total_price": 320_000, "total_to_stock": 5,
+         "total_accepted": 0, "date_created": "2026-07-28T08:00:00",
+         "date_accepted": None, "delivery_certificate": "", "products": _prods[:1]},
     ]
 
 

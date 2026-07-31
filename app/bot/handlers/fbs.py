@@ -140,13 +140,24 @@ _AWAITING_DATE: set[int] = set()
 
 # Bu statuslarga ega akt ENDI YANGI emas — Excel/bildirishnoma
 # kerak emas (Uzum allaqachon qabul qilgan yoki qilyapti).
-_FBO_DONE_MARKERS = ("прин", "accept")  # rus/ingliz: принят(а)/принимается, accepted
+# Bu statuslarga ega akt ENDI YANGI emas — Excel/bildirishnoma
+# kerak emas: allaqachon qabul qilingan/qilinmoqda YOKI bekor qilingan.
+_FBO_DONE_MARKERS = (
+    "прин",      # принят(а) / принимается — qabul qilingan/qilinmoqda
+    "accept",
+    "отмен",     # отменена / отменён — bekor qilingan
+    "cancel",
+)
 
 
 def _fbo_is_new(inv: dict) -> bool:
+    """
+    Faqat haqiqatan YANGI (hali qabul qilinmagan, bekor qilinmagan)
+    aktlar True qaytaradi.
+    """
     label = (inv.get("status_label") or "").lower()
     value = (inv.get("status_value") or "").upper()
-    if value == "ACCEPTED":
+    if value in ("ACCEPTED", "CANCELED", "CANCELLED"):
         return False
     return not any(m in label for m in _FBO_DONE_MARKERS)
 
