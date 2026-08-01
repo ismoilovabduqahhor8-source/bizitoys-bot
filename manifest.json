@@ -1,5 +1,5 @@
 {
- "app/__init__.py": "a3c5296297cf8b7b",
+ "app/__init__.py": "9576815c3e315877",
  "app/bot/__init__.py": "e3b0c44298fc1c14",
  "app/bot/cards.py": "8dc510cd08b8b9e4",
  "app/bot/handlers/__init__.py": "e3b0c44298fc1c14",
@@ -22,7 +22,7 @@
  "app/integrations/base.py": "75e2c386ac0f9e5c",
  "app/integrations/billz.py": "fb644490610f0b44",
  "app/integrations/mock_data.py": "f25b4be37e644d8f",
- "app/integrations/uzum.py": "c636af4498462746",
+ "app/integrations/uzum.py": "8ec65366ffd9275b",
  "app/scheduler.py": "76e0ac96d1f115b2",
  "app/services/__init__.py": "e3b0c44298fc1c14",
  "app/services/analytics.py": "1156a93724e68e72",

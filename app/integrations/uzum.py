@@ -358,7 +358,7 @@ class UzumClient(BaseClient):
 
         for status in statuses:
             page = 0
-            while page < 20:
+            while page < 200:
                 params = [("shopIds", str(i)) for i in ids] + [
                     ("scheme", "FBS"),
                     ("status", status),
@@ -511,8 +511,14 @@ class UzumClient(BaseClient):
         # o'lchov — tajribada aniqlandi (/moliyatekshir).
         #
         # Status filtri ham qo'shilmaydi: u bilan javob bo'sh keladi.
+        # MUHIM: ilgari bu yerda "page < 30" degan qattiq chegara bor edi
+        # (ko'pi bilan 3000 ta yozuv). Ko'p buyurtmali oylarda bu yozuvlarni
+        # JIM ravishda kesib tashlar edi — hisobot Uzum saytidagidan kam
+        # chiqishining sababi shu edi. Endi chegara ancha oshirildi va
+        # baribir yetmasa, ANIQ ogohlantirish chiqadi.
         page = 0
-        while page < 30:
+        MAX_PAGES = 300
+        while page < MAX_PAGES:
             params = [("shopIds", str(i)) for i in shop_ids] + [
                 ("dateFrom", str(int(date_from.timestamp()))),
                 ("dateTo", str(int(date_to.timestamp()))),
@@ -544,6 +550,12 @@ class UzumClient(BaseClient):
             if len(rows) < 100:
                 break
             page += 1
+        else:
+            log.warning(
+                "Moliya: %d-sahifa chegarasiga yetildi (%d ta yozuv) — "
+                "MA'LUMOT TO'LIQ BO'LMASLIGI MUMKIN! MAX_PAGES ni oshiring.",
+                MAX_PAGES, len(out),
+            )
 
         log.info("Moliya: %d ta yozuv", len(out))
         return out
@@ -694,7 +706,7 @@ class UzumClient(BaseClient):
         out: list[dict[str, Any]] = []
         for shop_id in shop_ids:
             page = 0
-            while page < 20:
+            while page < 200:
                 try:
                     raw = await self.get(
                         ENDPOINTS["products"].format(shop_id=shop_id),
@@ -771,7 +783,7 @@ class UzumClient(BaseClient):
         diag: list[str] = []
 
         page = 0
-        while page < 20:
+        while page < 200:
             try:
                 raw = await self.get(
                     ENDPOINTS["invoices_all"],
@@ -1012,7 +1024,7 @@ class UzumClient(BaseClient):
         names = await self.shop_names()
         out: list[dict[str, Any]] = []
         page = 0
-        while page < 40:
+        while page < 200:
             try:
                 raw = await self.get(ENDPOINTS["stocks"],
                                      params={"page": page, "size": 100})
@@ -1493,7 +1505,7 @@ class UzumClient(BaseClient):
 
         mapping: dict[str, int] = {}
         page = 0
-        while page < 20:
+        while page < 200:
             try:
                 raw = await self.get(ENDPOINTS["products"].format(shop_id=shop_id),
                                      params={"page": page, "size": 100})
