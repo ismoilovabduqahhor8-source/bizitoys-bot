@@ -85,3 +85,14 @@ CREATE TABLE IF NOT EXISTS fbo_invoice_state (
     notified      INTEGER NOT NULL DEFAULT 0,   -- 0/1: qabul haqida xabar berildimi
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Mahsulot holatini kuzatish — o'zgarishlarni (bloklanish, pullik
+-- saqlash, kam qoldiq) aniqlash uchun. Har chaqiruvda solishtiriladi,
+-- faqat O'ZGARGANDA xabar beriladi.
+CREATE TABLE IF NOT EXISTS sku_state (
+    sku_id        TEXT PRIMARY KEY,
+    blocked       INTEGER NOT NULL DEFAULT 0,
+    paid_storage  INTEGER NOT NULL DEFAULT 0,
+    low_stock     INTEGER NOT NULL DEFAULT 0,
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);

@@ -474,3 +474,39 @@ async def set_fbo_invoice_state(
         await db.commit()
     finally:
         await db.close()
+
+
+# ------------------------------------------------------------------
+#  MAHSULOT HOLATI — bloklanish/pullik saqlash/kam qoldiq o'zgarishini
+#  kuzatish uchun (bir marta xabar berish).
+# ------------------------------------------------------------------
+async def get_sku_state(sku_id: str) -> dict[str, int] | None:
+    db = await _conn()
+    try:
+        async with db.execute(
+            "SELECT * FROM sku_state WHERE sku_id = ?", (str(sku_id),)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def set_sku_state(
+    sku_id: str, blocked: bool, paid_storage: bool, low_stock: bool
+) -> None:
+    db = await _conn()
+    try:
+        await db.execute(
+            """INSERT INTO sku_state (sku_id, blocked, paid_storage, low_stock, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(sku_id) DO UPDATE SET
+                   blocked = excluded.blocked,
+                   paid_storage = excluded.paid_storage,
+                   low_stock = excluded.low_stock,
+                   updated_at = excluded.updated_at""",
+            (str(sku_id), int(blocked), int(paid_storage), int(low_stock)),
+        )
+        await db.commit()
+    finally:
+        await db.close()

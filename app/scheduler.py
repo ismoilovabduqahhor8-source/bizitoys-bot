@@ -259,6 +259,15 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     # Uzum'ning haqiqiy ma'lumotiga (get_product_stats) o'tkazilgan
     # holda qaytarish mumkin.
 
+    # --- Mahsulot holati (kam qoldiq, sotuvga chiqdi, pullik saqlash) ---
+    # Endi Uzum'ning O'ZIDAN — Billz emas.
+    sched.add_job(
+        notif.check_product_state,
+        IntervalTrigger(minutes=30, timezone=tz),
+        args=[bot],
+        id="check_product_state",
+    )
+
     sched.start()
     log.info("Scheduler ishga tushdi (%s):", settings.timezone)
     log.info("  • yangi buyurtma tekshiruvi: har %d daqiqada", settings.new_order_check_min)

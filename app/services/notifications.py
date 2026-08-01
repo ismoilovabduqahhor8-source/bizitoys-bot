@@ -537,3 +537,108 @@ async def check_fbo_invoices(bot: Bot) -> None:
             await repo.set_fbo_invoice_state(
                 inv_id, inv["shop_id"], inv["status_value"], notified=False
             )
+
+
+# ------------------------------------------------------------------
+#  MAHSULOT HOLATI KUZATUVI — 3 xil o'zgarish, faqat bir marta xabar
+# ------------------------------------------------------------------
+LOW_STOCK_THRESHOLD = 5  # shundan kam qolsa — ogohlantirish
+
+
+async def check_product_state(bot: Bot) -> None:
+    """
+    Uzum'dagi mahsulotlarni tekshiradi va UCH xil o'zgarishni
+    aniqlaydi, adminlarga xabar beradi:
+
+      1. Kam qoldiq   — yaxshi sotiladigan tovar tugab qolmoqda
+      2. Sotuvga chiqdi — bloklangan tovar blokdan chiqdi
+      3. Pullik saqlash — tovar Uzum'ning pullik saqlash rejimiga o'tdi
+
+    Har biri faqat HOLAT O'ZGARGANDA yuboriladi — har tekshiruvda
+    qayta-qayta emas.
+    """
+    from app.integrations.uzum import uzum
+
+    admins = [
+        e for e in await repo.list_employees() if e["role"] == repo.ROLE_ADMIN
+    ]
+    if not admins:
+        return
+
+    try:
+        stats = await uzum.get_product_stats()
+    except Exception as e:
+        log.warning("Mahsulot holatini tekshirishda xato: %s", e)
+        return
+
+    for s in stats:
+        sku_id = str(s.get("sku_id") or s["sku"])
+        prev = await repo.get_sku_state(sku_id)
+        prev = prev or {"blocked": 0, "paid_storage": 0, "low_stock": 0}
+
+        # Umumiy qulaylik uchun "sklada + fbs" jamlanmasi kam qolgani
+        # aniqlanadi — bu Uzum'ning "yaxshi sotiladigan tovar kam
+        # qolmoqda" degan ogohlantirishiga mos.
+        combined = s["warehouse_qty"] + s["fbs_qty"]
+        is_low = 0 < combined <= LOW_STOCK_THRESHOLD and s["sold_7d"] > 0
+
+        # --- 1. Kam qoldiq ---
+        if is_low and not prev["low_stock"]:
+            text = (
+                f"⚠️ <b>Ostatkani to'ldiring</b>\n"
+                f"Yaxshi sotilayotgan tovar Uzum omborida kam qolmoqda\n\n"
+                f"🛍 Do'kon aydisi: {s['shop_id']}\n"
+                f"Nomi: {s['shop_name']}\n\n"
+                f"📦 Tovar nomi: {s['name']}\n"
+                f"SKU: {s['sku']}\n"
+                f"Shtrix: {s['barcode']}\n\n"
+                f"Sklada qoldi: {s['warehouse_qty']}\n"
+                f"FBO Yuborishga: {s['pending_qty']}\n"
+                f"FBSda qoldi: {s['fbs_qty']}"
+            )
+            for a in admins:
+                try:
+                    await bot.send_message(a["telegram_id"], text)
+                except Exception:
+                    pass
+
+        # --- 2. Sotuvga chiqdi (blokdan chiqdi) ---
+        if prev["blocked"] and not s["blocked"]:
+            text = (
+                f"🎉 <b>Tovar sotuvga chiqdi</b>\n"
+                f"Statusi: 💰 Sotuvda\n\n"
+                f"🛍 Do'kon aydisi: {s['shop_id']}\n"
+                f"Nomi: {s['shop_name']}\n"
+                f"📦 Tovar aydisi: {s['sku_id']}\n"
+                f"SKU: {s['sku']}\n"
+                f"Nomi: {s['name']}"
+            )
+            for a in admins:
+                try:
+                    await bot.send_message(a["telegram_id"], text)
+                except Exception:
+                    pass
+
+        # --- 3. Pullik saqlashga o'tdi ---
+        if s["paid_storage"] and not prev["paid_storage"]:
+            text = (
+                f"⚠️ <b>SKU pulli saqlashga o'tdi</b>\n\n"
+                f"🛍 Do'kon aydisi: {s['shop_id']}\n"
+                f"Nomi: {s['shop_name']}\n\n"
+                f"📦 Tovar nomi: {s['name']}\n"
+                f"SKU: {s['sku']}\n"
+                f"Shtrix: {s['barcode']}\n\n"
+                f"💵 Kunlik saqlash narxi: {s['storage_amount']} so'm\n"
+                f"💵 Donasiga to'lov: {s['storage_price_item']} so'm\n"
+                f"Pullik saqlashdagi tovar soni: {s['storage_qty']}"
+            )
+            for a in admins:
+                try:
+                    await bot.send_message(a["telegram_id"], text)
+                except Exception:
+                    pass
+
+        await repo.set_sku_state(
+            sku_id, blocked=s["blocked"], paid_storage=s["paid_storage"],
+            low_stock=is_low,
+        )

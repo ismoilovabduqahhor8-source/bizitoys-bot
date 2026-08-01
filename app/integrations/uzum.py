@@ -673,13 +673,19 @@ class UzumClient(BaseClient):
         """
         Har bir SKU bo'yicha to'liq statistika — /v1/product/shop/{id} dan.
 
-        Bu yerda FBO qoldig'i uchun ALOHIDA maydon yo'q (Uzum buni
-        bermaydi). Lekin ikkita haqiqiy maydon bor:
-            quantityActive — umumiy faol qoldiq (barcha joylarda)
-            quantityFbs    — faqat FBS omboringizda turgan qism
+        MUHIM: ombor bo'yicha UCHTA alohida raqam bor — Uzum
+        kabinetidagi bildirishnomaga aynan mos:
+            quantityFbs        -> "FBSda qoldi"     (FBS omborida)
+            quantityAdditional -> "Sklada qoldi"    (o'z omboringizda)
+            quantityPending    -> "FBO Yuborishga"  (FBOga jo'natishga tayyor)
 
-        Demak farqi — Uzumning o'z omborida (FBO) turgan qism:
-            FBO qoldig'i = quantityActive − quantityFbs
+        Pullik saqlash uchun ham haqiqiy maydonlar bor:
+            pstorage             -> tovar pullik saqlashda (True/False)
+            paidStoragePriceItem -> bitta dona uchun kunlik narx
+            paidStorageAmount    -> jami kunlik narx (= narx × soni)
+
+        FBO qoldig'i (fbo_qty) uchun alohida maydon yo'q, ikkita
+        haqiqiy sondan hisoblanadi: quantityActive − quantityFbs.
 
         "Top sotilgan" uchun ham haqiqiy maydon bor: avgdsales —
         SKU'ning kunlik o'rtacha sotuvi. 7 kunlik taxminiy sotuvni
@@ -687,21 +693,26 @@ class UzumClient(BaseClient):
         """
         if settings.uzum_mock:
             demo = [
-                ("BT-1001", "Yumshoq ayiqcha", 14, 9, False, "", ""),
-                ("BT-1002", "Konstruktor", 3, 22, False, "", ""),
-                ("BT-1003", "Mashina", 0, 5, False, "", ""),
-                ("BT-1009", "Sorter (rasm buzuq)", 8, 0, True,
-                 "Rasm sifati talabga javob bermaydi",
-                 "Mahsulot rasmini almashtiring va qayta yuboring"),
+                ("BT-1001", "Yumshoq ayiqcha", 14, 9, False, 5, 10, 0, False, 0, 0),
+                ("BT-1002", "Konstruktor", 3, 22, False, 3, 0, 0, False, 0, 0),
+                ("BT-1003", "Mashina", 0, 5, False, 0, 0, 0, False, 0, 0),
+                ("BT-1009", "Sorter (rasm buzuq)", 8, 0, True, 8, 0, 0, False, 0, 0),
+                ("BT-1010", "Lego konstruktor", 0, 3, False, 0, 0, 4, True, 48, 192),
             ]
             return [
                 {"sku": s, "name": n, "fbo_qty": q, "sold_7d": sold,
-                 "blocked": b, "block_reason": r, "block_message": m}
-                for (s, n, q, sold, b, r, m) in demo
+                 "blocked": b, "fbs_qty": fbs, "warehouse_qty": wh,
+                 "pending_qty": pend, "paid_storage": ps,
+                 "storage_price_item": spi, "storage_amount": sa,
+                 "storage_qty": (round(sa / spi) if spi else 0),
+                 "barcode": f"100000{i}", "sku_id": 5000 + i,
+                 "shop_id": 79873, "shop_name": "SENSOR o'yinchoqlar"}
+                for i, (s, n, q, sold, b, fbs, wh, pend, ps, spi, sa) in enumerate(demo)
             ]
 
         if shop_ids is None:
             shop_ids = settings.uzum_shop_ids or [s["id"] for s in await self.get_shops()]
+        names = await self.shop_names()
 
         out: list[dict[str, Any]] = []
         for shop_id in shop_ids:
@@ -724,25 +735,39 @@ class UzumClient(BaseClient):
                     for sku in prod.get("skuList") or []:
                         active = int(sku.get("quantityActive") or 0)
                         fbs = int(sku.get("quantityFbs") or 0)
+                        additional = int(sku.get("quantityAdditional") or 0)
+                        pending = int(sku.get("quantityPending") or 0)
                         fbo = max(active - fbs, 0)
                         avg = float(sku.get("avgdsales") or 0)
 
+                        storage_price = int(sku.get("paidStoragePriceItem") or 0)
+                        storage_amount = int(sku.get("paidStorageAmount") or 0)
+                        storage_qty = (
+                            round(storage_amount / storage_price)
+                            if storage_price else 0
+                        )
+
                         # Bloklangan mahsulot — Uzum sotuvni to'xtatgan.
-                        # Sabab ko'pincha: rasm buzilishi, taqiqlangan
-                        # mahsulot, hujjat yetishmasligi.
                         block = sku.get("skuBlockReason") or {}
                         out.append({
                             "sku": sku.get("skuTitle") or sku.get("article") or "—",
+                            "barcode": sku.get("barcode") or "",
+                            "sku_id": sku.get("skuId"),
                             "name": sku.get("productTitle") or prod.get("title") or "—",
+                            "shop_id": shop_id,
+                            "shop_name": names.get(shop_id, ""),
                             "fbo_qty": fbo,
+                            "fbs_qty": fbs,
+                            "warehouse_qty": additional,
+                            "pending_qty": pending,
                             "sold_7d": round(avg * 7),
                             "blocked": bool(sku.get("blocked")),
-                            "block_reason": (
-                                block.get("title")
-                                or sku.get("blockingReason")
-                                or ""
-                            ),
+                            "block_reason": block.get("title") or sku.get("blockingReason") or "",
                             "block_message": block.get("message") or "",
+                            "paid_storage": bool(sku.get("pstorage")),
+                            "storage_price_item": storage_price,
+                            "storage_amount": storage_amount,
+                            "storage_qty": storage_qty,
                         })
 
                 if len(products) < 100:
