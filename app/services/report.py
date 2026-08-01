@@ -195,7 +195,10 @@ async def build(day: datetime | None = None) -> dict[str, Any]:
     return await build_between(start, end, f"{start:%d.%m.%Y}")
 
 
-PERIOD_LABELS = {"today": "📅 Bugun", "yesterday": "📆 Kecha", "month": "🗓 Bu oy"}
+PERIOD_LABELS = {
+    "today": "📅 Bugun", "yesterday": "📆 Kecha",
+    "month": "🗓 Bu oy", "last_month": "🗓 O'tgan oy",
+}
 
 
 def period_bounds(kind: str, now: datetime | None = None) -> tuple[datetime, datetime, str]:
@@ -205,6 +208,9 @@ def period_bounds(kind: str, now: datetime | None = None) -> tuple[datetime, dat
     "month" — oyning 1-kunidan HOZIRGACHA (bugungacha), yopilgan oy
     emas. Shuning uchun 1-avgustda bu avtomatik 01.08 dan boshlanadi —
     qo'lda o'zgartirish shart emas.
+
+    "last_month" — O'TGAN, TO'LIQ yopilgan oy (1-kundan oxirgi
+    kunigacha). Masalan bugun avgustda bo'lsa, bu — butun iyul oyi.
     """
     now = now or datetime.now(TZ)
     if kind == "today":
@@ -217,6 +223,13 @@ def period_bounds(kind: str, now: datetime | None = None) -> tuple[datetime, dat
         start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         end = now
         title = f"{start:%d.%m.%Y} – {now:%d.%m.%Y}"
+    elif kind == "last_month":
+        this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = this_month_start  # o'tgan oyning oxiri = shu oyning boshi
+        # O'tgan oyning 1-kuni: bir kun orqaga surib, keyin 1-kunga qaytamiz
+        last_day_prev = this_month_start - timedelta(days=1)
+        start = last_day_prev.replace(day=1)
+        title = f"{start:%d.%m.%Y} – {end - timedelta(seconds=1):%d.%m.%Y}"
     else:
         raise ValueError(f"noma'lum davr: {kind}")
     return start, end, title

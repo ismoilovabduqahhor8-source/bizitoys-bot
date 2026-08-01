@@ -1,5 +1,5 @@
 {
- "app/__init__.py": "7cfe2906f0141467",
+ "app/__init__.py": "a3c5296297cf8b7b",
  "app/bot/__init__.py": "e3b0c44298fc1c14",
  "app/bot/cards.py": "8dc510cd08b8b9e4",
  "app/bot/handlers/__init__.py": "e3b0c44298fc1c14",
@@ -33,7 +33,7 @@
  "app/services/notifications.py": "82b19b6e92ff533d",
  "app/services/orders.py": "a0578668cafa0b4d",
  "app/services/pdfmerge.py": "dd0b4809fe4aae78",
- "app/services/report.py": "84c46a5da5c0badb",
+ "app/services/report.py": "c721d1203cfb7448",
  "app/services/report_image.py": "7b16ed349cde9af0",
  "app/services/report_pdf.py": "fb5f55ee7f4198a6",
  "app/services/stock.py": "ef83d1dc65601634",
