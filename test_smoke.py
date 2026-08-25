@@ -167,6 +167,31 @@ async def main() -> None:
     check("xodim-egasi bog'lash bazada",
           lambda: saved and saved["account_key"] == "kamoliddin")
 
+    print("\n13) AI intent (erkin matndan amal aniqlash)")
+    from app.services import ai_intent
+
+    def intent_ok(text: str, want: str | None) -> None:
+        got = ai_intent.detect(text)
+        assert got == want, f"{text!r}: {got!r} != {want!r}"
+
+    check("hodimlar ro'yxati -> employees",
+          lambda: intent_ok("hodimlar ro'yxatini ko'rsat", "employees"))
+    check("QR kodlar -> yorliqlar",
+          lambda: intent_ok("QR kodlar kerak", "yorliqlar"))
+    check("rasmini tashla -> hisobot",
+          lambda: intent_ok("bugungi fbs buyurtmalar rasmini tashla", "hisobot"))
+    check("akt -> aktlar",
+          lambda: intent_ok("akt kerak", "aktlar"))
+    check("savdo qancha -> AI (None)",
+          lambda: intent_ok("bugungi savdo qancha", None))
+    check("salom -> AI (None)",
+          lambda: intent_ok("salom", None))
+    check("aktiv -> akt EMAS",
+          lambda: intent_ok("aktiv tovarlar qancha", None))
+    check("rol parse",
+          lambda: ai_intent.parse_role_change("aziz rolini yig'uvchi qil")
+          == ("aziz", "yiguvchi"))
+
 
 if __name__ == "__main__":
     asyncio.run(main())

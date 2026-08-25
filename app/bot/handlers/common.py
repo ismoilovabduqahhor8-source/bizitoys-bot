@@ -105,9 +105,11 @@ async def cmd_help(message: Message, employee: dict | None) -> None:
 
 
 # ------------------------------------------------------------------
-#  ERKIN SAVOL -> AI
-#  Bu handler ENG OXIRIDA turadi: boshqa hech biri javob bermasa,
-#  savol AI'ga yuboriladi.
+#  ERKIN SAVOL -> AMAL yoki AI
+#  Bu handler ENG OXIRIDA turadi: boshqa hech biri javob bermasa.
+#  Avval AMAL (intent) tekshiriladi: «hodimlar ro'yxati» -> ro'yxat,
+#  «QR kerak» -> yorliqlar, «rasmini tashla» -> hisobot rasmi va h.k.
+#  Amal bo'lmasa — savol AI'ga yuboriladi (buyurtmalar + savdo bilan).
 # ------------------------------------------------------------------
 @router.message(F.text & ~F.text.startswith("/"))
 async def free_question(message: Message, employee: dict | None) -> None:
@@ -117,6 +119,14 @@ async def free_question(message: Message, employee: dict | None) -> None:
     text = (message.text or "").strip()
     if len(text) < 4:
         return
+
+    # --- AMAL (intent) aniqlansa — mos buyruq bajariladi ---
+    from app.services import ai_intent
+
+    intent = ai_intent.detect(text)
+    if intent:
+        if await _run_intent(intent, text, message, employee):
+            return
 
     if not ai.enabled:
         await message.answer(
@@ -160,3 +170,95 @@ async def free_question(message: Message, employee: dict | None) -> None:
         await thinking.edit_text(
             "Javob bera olmadim.\n\nBuyruqlar ro'yxati: /help"
         )
+
+
+async def _run_intent(
+    intent: str, text: str, message: Message, employee: dict
+) -> bool:
+    """Aniqlangan amalni bajaradi. Qaytaradi: True — bajarildi."""
+    if intent == "employees":
+        await _show_employees(message)
+        return True
+    if intent == "yorliqlar":
+        from app.bot.handlers.orders import cmd_labels_bulk
+        await cmd_labels_bulk(message, employee)
+        return True
+    if intent == "aktlar":
+        from app.bot.handlers.invoices import cmd_invoices
+        await cmd_invoices(message, employee)
+        return True
+    if intent == "hisobot":
+        from app.bot.handlers.stock import cmd_report
+        await cmd_report(message, employee)
+        return True
+    if intent == "qoldiq":
+        from app.bot.handlers.stock import cmd_uzum_stock
+        await cmd_uzum_stock(message, employee)
+        return True
+    if intent == "orders":
+        from app.bot.handlers.orders import cmd_orders
+        await cmd_orders(message, employee)
+        return True
+    if intent == "shosh":
+        from app.bot.handlers.orders import cmd_urgent
+        await cmd_urgent(message, employee)
+        return True
+    if intent == "postavka":
+        from app.bot.handlers.postavka import cmd_postavka
+        await cmd_postavka(message, employee)
+        return True
+    if intent == "rol":
+        return await _change_role(text, message, employee)
+    return False
+
+
+async def _show_employees(message: Message) -> None:
+    """Xodimlar ro'yxati — ism va rol bilan."""
+    people = await repo.list_employees()
+    if not people:
+        await message.answer("Xodimlar ro'yxati bo'sh.")
+        return
+
+    lines = ["<b>👥 Xodimlar</b>", ""]
+    for p in people:
+        role_label = repo.ROLE_LABELS.get(p["role"], p["role"])
+        uname = f" (@{p['username']})" if p.get("username") else ""
+        lines.append(f"• {p['full_name']}{uname} — {role_label}")
+    await message.answer("\n".join(lines))
+
+
+async def _change_role(text: str, message: Message, employee: dict) -> bool:
+    """«Xodim rolini o'zgartir» — faqat admin bajarishi mumkin."""
+    from app.services import ai_intent
+
+    if employee["role"] != repo.ROLE_ADMIN:
+        await message.answer("🔒 Rol o'zgartirish faqat <b>admin</b> uchun.")
+        return True
+
+    parsed = ai_intent.parse_role_change(text)
+    if not parsed:
+        await message.answer(
+            "Rol o'zgartirish uchun shunday yozing:\n"
+            "<i>«Aziz rolini yig'uvchi qil»</i>\n"
+            "Rollar: admin · sklad · yig'uvchi · haydovchi · xodim"
+        )
+        return True
+
+    name_hint, role_code = parsed
+    people = await repo.list_employees()
+    match = ai_intent.find_employee_by_name(people, name_hint)
+    if not match:
+        await message.answer(
+            f"❌ <b>{name_hint}</b> ismli xodim topilmadi.\n"
+            "Xodimlar ro'yxati: /employees"
+        )
+        return True
+
+    await repo.upsert_employee(
+        match["telegram_id"], match.get("username"), match["full_name"], role_code
+    )
+    await message.answer(
+        f"✅ <b>{match['full_name']}</b> endi — "
+        f"{repo.ROLE_LABELS.get(role_code, role_code)}"
+    )
+    return True
