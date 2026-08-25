@@ -67,8 +67,11 @@ def _parse_accounts() -> list[Account]:
     Misol:
       UZUM_ACCOUNTS=Abduqahhor|TOKEN1|77165,77419 ; Kamoliddin|TOKEN2|11111,22222
 
-    UZUM_ACCOUNTS bo'sh bo'lsa — eski UZUM_TOKEN/UZUM_SHOP_IDS bitta
-    akkaunt sifatida ishlayveradi (backward compatibility).
+    OSON USUL: UZUM_ACCOUNTS ga faqat YANGI egasini yozish kifoya —
+    eski UZUM_TOKEN (agar ro'yxatda bo'lmasa) avtomatik birinchi egasi
+    sifatida qo'shiladi. Shunda hech narsa buzilmaydi:
+      UZUM_ACCOUNTS=Kamoliddin|TOKEN2|
+      UZUM_ACCOUNT_NAME=Abduqahhor   (eski tokeningizning nomi)
     """
     raw = _env("UZUM_ACCOUNTS")
     out: list[Account] = []
@@ -86,14 +89,29 @@ def _parse_accounts() -> list[Account]:
                 shops = [int(x) for x in seg[2].split(",") if x.strip().isdigit()]
             key = _slug(name) or f"acct{i + 1}"
             out.append(Account(key=key, name=name, token=seg[1], shop_ids=shops))
-    if not out:
-        # Eski usul — bitta egasi (UZUM_TOKEN bilan)
+
+    # Eski UZUM_TOKEN ham egasi sifatida qo'shiladi — agar yuqoridagi
+    # ro'yxatda bo'lmasa (ko'chib o'tishda hech narsa buzilmaydi).
+    legacy_token = _env("UZUM_TOKEN")
+    if legacy_token and not any(a.token == legacy_token for a in out):
         name = _env("UZUM_ACCOUNT_NAME", "Asosiy") or "Asosiy"
         out.append(
             Account(
                 key=_slug(name) or "main",
                 name=name,
-                token=_env("UZUM_TOKEN"),
+                token=legacy_token,
+                shop_ids=_env_list("UZUM_SHOP_IDS"),
+            )
+        )
+
+    if not out:
+        # Hech qanday token yo'q — soxta rejim uchun bitta egasi
+        name = _env("UZUM_ACCOUNT_NAME", "Asosiy") or "Asosiy"
+        out.append(
+            Account(
+                key=_slug(name) or "main",
+                name=name,
+                token=legacy_token,
                 shop_ids=_env_list("UZUM_SHOP_IDS"),
             )
         )
