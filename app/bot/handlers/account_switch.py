@@ -9,6 +9,7 @@ narsa avvalgidek ishlayveradi.
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 
 from aiogram import F, Router
@@ -37,6 +38,12 @@ def register(cmd: str, module: str, func: str, wants_employee: bool = True) -> N
 # javob beriladi (from_user/chat to'g'ri bo'lishi uchun).
 _PENDING: dict[int, Message] = {}
 
+# Tanlash tugmasi bosilgach, buyruq qayta chaqiriladi — shunda YANA tanlash
+# so'ralmasligi uchun bayroq (cheksiz aylanishning oldini oladi).
+_RERUN: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "acct_rerun", default=False
+)
+
 
 async def ensure_account(message: Message, employee: dict, cmd: str) -> bool:
     """
@@ -46,6 +53,11 @@ async def ensure_account(message: Message, employee: dict, cmd: str) -> bool:
       True  — tanlash tugmalari ko'rsatildi, buyruq shu yerda to'xtaydi;
       False — davom etish mumkin (joriy egasi allaqachon tanlangan).
     """
+    # Tugma bosilib, buyruq qayta ishga tushirilgan — tanlash shart emas,
+    # egasi allaqachon tanlangan (contextda).
+    if _RERUN.get():
+        return False
+
     allowed = accounts.for_employee(employee)
     if not allowed:
         return False
@@ -102,7 +114,10 @@ async def cb_pick_account(callback: CallbackQuery, employee: dict) -> None:
         return
     fn = getattr(mod, func)
 
-    # Asl buyruq xabari bilan chaqiramiz (tanlash tugmasi o'rniga)
+    # Asl buyruq xabari bilan chaqiramiz (tanlash tugmasi o'rniga).
+    # RERUN bayrog'i: buyruq ichidagi ensure_account() yana tanlash
+    # so'ramasligi uchun — egasi shu yerda tanlangan.
+    _RERUN.set(True)
     orig = _PENDING.pop(callback.from_user.id, None) or callback.message
     try:
         if wants_employee:
@@ -117,3 +132,5 @@ async def cb_pick_account(callback: CallbackQuery, employee: dict) -> None:
             )
         except Exception:
             pass
+    finally:
+        _RERUN.set(False)
