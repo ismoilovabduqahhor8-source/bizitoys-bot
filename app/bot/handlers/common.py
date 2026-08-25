@@ -141,7 +141,18 @@ async def free_question(message: Message, employee: dict | None) -> None:
             items = await order_service.orders_for_user(employee)
         except Exception:
             items = []
-        answer = await ai.ask(text, context.build(items, employee))
+
+        # AI HAMMA MA'LUMOTNI KO'RSIN: buyurtmalar + bugungi savdo.
+        # Savdo keshda (1 soat) — soatlik vazifa yangilab turadi,
+        # shuning uchun javob sekinlashmaydi.
+        ctx = context.build(items, employee)
+        try:
+            from app.services import report
+
+            ctx["bugungi_savdo"] = await report.today_sales_cached()
+        except Exception:
+            pass
+        answer = await ai.ask(text, ctx)
 
     if answer:
         await thinking.edit_text(answer)

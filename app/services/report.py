@@ -27,6 +27,48 @@ log = logging.getLogger(__name__)
 TZ = ZoneInfo(settings.timezone)
 
 
+KV_TODAY_SALES = "today_sales_cache"
+
+
+async def today_sales_cached(force: bool = False) -> dict[str, Any]:
+    """
+    Bugungi kun sotuvi — AI savollari uchun.
+
+    Kesh: 1 soat (moliya API sekin — har savolda so'ralmaydi).
+    Soatlik vazifa (notifications.hourly_report) keshni yangilab turadi,
+    shuning uchun ish kuni davomida deyarli har doim tayyor bo'ladi.
+    """
+    import json
+
+    from app.db import repo
+
+    now = datetime.now(TZ)
+    if not force:
+        raw = await repo.kv_get(KV_TODAY_SALES)
+        if raw:
+            try:
+                data = json.loads(raw)
+                age = (now - datetime.fromisoformat(data["ts"])).total_seconds()
+                if age < 3600:
+                    return data["data"]
+            except Exception:
+                pass
+
+    day_start, _ = day_bounds(now)
+    rep = await build_between(day_start, now, "Bugun")
+    total = rep.get("total", {})
+    data = {
+        "qty": total.get("qty", 0),
+        "revenue": total.get("revenue", 0),
+        "payout": total.get("payout", 0),
+        "count": total.get("count", 0),
+    }
+    await repo.kv_set(
+        KV_TODAY_SALES, json.dumps({"ts": now.isoformat(), "data": data})
+    )
+    return data
+
+
 def day_bounds(day: datetime | None = None) -> tuple[datetime, datetime]:
     """Kunning boshi va oxiri."""
     d = (day or datetime.now(TZ)).astimezone(TZ)

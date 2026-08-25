@@ -486,6 +486,19 @@ async def hourly_report(bot: Bot, account_key: str | None = None) -> None:
         "payout": cur_payout, "count": cur_count, "sku": cur_sku,
     }))
 
+    # AI savollari uchun bugungi savdo keshi ham yangilanadi —
+    # shunda AI har doim yangi raqamlarni ko'radi (kesh 1 soat).
+    try:
+        await repo.kv_set(report.KV_TODAY_SALES, json.dumps({
+            "ts": now.isoformat(),
+            "data": {
+                "qty": cur_qty, "revenue": cur_revenue,
+                "payout": cur_payout, "count": cur_count,
+            },
+        }))
+    except Exception:
+        pass
+
     if delta_qty == 0 and delta_revenue == 0:
         log.info("Soatlik hisobot: %s — bu soatda sotuv yo'q", hour_end.strftime("%H:%M"))
         return
