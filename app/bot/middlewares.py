@@ -14,6 +14,8 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from app.db import repo
+from app.integrations.uzum import set_account
+from app.services import accounts
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +35,12 @@ class AuthMiddleware(BaseMiddleware):
 
         employee = await repo.get_employee(user.id)
         data["employee"] = employee
+
+        # Foydalanuvchi oxirgi tanlagan do'kon egasi shu so'rov davomida
+        # ishlatiladi (FBS menyusi kabi ko'p bosqichli oqimlar uchun).
+        saved = accounts.user_account(user.id)
+        if saved:
+            set_account(saved)
 
         # Ochiq buyruqlarni hamma ishlata oladi
         if isinstance(event, Message):

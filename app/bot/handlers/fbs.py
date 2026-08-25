@@ -25,6 +25,7 @@ from aiogram.types import (
 )
 
 from app.bot import cards
+from app.bot.handlers import account_switch
 from app.bot.keyboards import group_actions
 from app.db import repo
 from app.integrations.base import ApiError
@@ -110,6 +111,8 @@ async def cmd_fbs(message: Message, employee: dict) -> None:
     so'raladi, chunki FBO'da butunlay boshqa ish (yuk xatlari,
     zelyoniy koridor) bor.
     """
+    if await account_switch.ensure_account(message, employee, "fbs"):
+        return
     await message.answer(
         "<b>📦 Qaysi ish turi?</b>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
@@ -360,6 +363,8 @@ async def on_fbo_date(message: Message) -> None:
 @router.message(Command("fbo"))
 async def cmd_fbo_shortcut(message: Message, employee: dict) -> None:
     """/fbo — to'g'ridan-to'g'ri FBO bo'limiga o'tish (menyusiz)."""
+    if await account_switch.ensure_account(message, employee, "fbo"):
+        return
     await message.answer(
         "<b>🚛 FBO</b>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
@@ -575,3 +580,9 @@ async def _open_postavka(callback: CallbackQuery, employee: dict) -> None:
             f"<code>{type(e).__name__}: {str(e)[:200]}</code>\n\n"
             "<i>Shu matnni Claude'ga yuboring.</i>"
         )
+
+
+# Ko'p egasi bo'lgan foydalanuvchiga tanlash tugmasi ko'rsatilgach,
+# shu funksiyalar chaqiriladi (account_switch).
+account_switch.register("fbs", "fbs", "cmd_fbs")
+account_switch.register("fbo", "fbs", "cmd_fbo_shortcut")

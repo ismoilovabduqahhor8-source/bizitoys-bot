@@ -5,12 +5,19 @@ Ishlatish:  python test_smoke.py
 
 Bu skript butun biznes-logikani Telegram'ga ulanmasdan sinaydi:
 buyurtmalar, guruhlash, ombor, hisobotlar (matn/rasm/PDF/Excel),
-FBO holati, tahlil va ish oqimi.
+FBO holati, tahlil, ish oqimi va ko'p do'kon egasi (akkaunt).
 """
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+
+# Ko'p do'kon egasi rejimini sinash uchun — config import qilinishidan
+# OLDIN sozlanadi (config import paytida o'qiladi).
+os.environ.setdefault("UZUM_ACCOUNTS",
+                      "Abduqahhor|test_tok_1|77165,77419 ; Kamoliddin|test_tok_2|11111")
+os.environ.setdefault("MOCK_MODE", "true")
 
 PASS, FAIL = 0, 0
 
@@ -117,6 +124,48 @@ async def main() -> None:
     check("mock_orders", lambda: mock_data.mock_orders())
     check("mock_finance", lambda: mock_data.mock_finance())
     check("mock_expenses", lambda: mock_data.mock_expenses())
+
+    print("\n12) Ko'p do'kon egasi (akkaunt)")
+    from app.services import accounts as acct_service
+    from app.integrations.uzum import get_client, current_account
+
+    accts = acct_service.all_accounts()
+    check(f"UZUM_ACCOUNTS: {len(accts)} ta egasi (Abduqahhor, Kamoliddin)",
+          lambda: (len(accts) == 2
+                   and {a.name for a in accts} == {"Abduqahhor", "Kamoliddin"}))
+
+    admin = {"role": repo.ROLE_ADMIN, "account_key": None}
+    emp_ab = {"role": repo.ROLE_EMPLOYEE, "account_key": "abduqahhor"}
+    emp_kam = {"role": repo.ROLE_EMPLOYEE, "account_key": "kamoliddin"}
+    check("admin hammasini ko'radi",
+          lambda: len(acct_service.for_employee(admin)) == 2)
+    check("xodim faqat o'z egasini ko'radi",
+          lambda: (len(acct_service.for_employee(emp_ab)) == 1
+                   and acct_service.for_employee(emp_ab)[0].key == "abduqahhor"
+                   and acct_service.for_employee(emp_kam)[0].key == "kamoliddin"))
+
+    c1 = get_client("abduqahhor")
+    c2 = get_client("kamoliddin")
+    check("har egasining clienti alohida (kesh ajratilgan)",
+          lambda: c1 is not c2 and c1.account_key != c2.account_key)
+
+    acct_service.select("kamoliddin")
+    check("select -> current_account",
+          lambda: current_account() == "kamoliddin")
+    orders_kam = await order_service.sync_today()
+    check(f"Kamoliddin clienti bilan buyurtmalar: {len(orders_kam)} ta",
+          lambda: None)
+    acct_service.select("abduqahhor")
+    check("qayta tanlash ishlaydi",
+          lambda: current_account() == "abduqahhor")
+
+    check("by_name topish", lambda: acct_service.by_name("kamoliddin").name == "Kamoliddin")
+    check("set_employee_account",
+          lambda: None)
+    await repo.set_employee_account(999999, "kamoliddin")
+    saved = await repo.get_employee(999999)
+    check("xodim-egasi bog'lash bazada",
+          lambda: saved and saved["account_key"] == "kamoliddin")
 
 
 if __name__ == "__main__":

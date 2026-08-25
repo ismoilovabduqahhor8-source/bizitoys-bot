@@ -15,8 +15,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import ErrorEvent
 
-from app.bot.handlers import (admin, attendance, common, fbs, invoices, orders,
-                              postavka, stock)
+from app.bot.handlers import (account_switch, admin, attendance, common, fbs,
+                              invoices, orders, postavka, stock)
 from app.bot.middlewares import AuthMiddleware
 from app.bot.throttle import Throttle
 from app import VERSION
@@ -64,6 +64,7 @@ async def main() -> None:
     # Router'lar tartibi muhim: admin birinchi, umumiy oxirida
     dp.include_router(admin.router)
     dp.include_router(attendance.router)
+    dp.include_router(account_switch.router)
     dp.include_router(fbs.router)
     dp.include_router(postavka.router)
     dp.include_router(invoices.router)

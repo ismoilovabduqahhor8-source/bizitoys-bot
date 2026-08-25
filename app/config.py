@@ -42,6 +42,64 @@ def _env_list(key: str) -> list[int]:
     return out
 
 
+def _slug(text: str) -> str:
+    """«Abduqahhor» -> «abduqahhor», «Abdu Qahhor» -> «abdu_qahhor»."""
+    out = []
+    for ch in text.strip().lower():
+        out.append(ch if ch.isalnum() else "_")
+    return "".join(out).strip("_")
+
+
+@dataclass(frozen=True)
+class Account:
+    """Bitta do'kon egasi — o'z Uzum tokeni va do'konlari bilan."""
+
+    key: str          # texnik identifikator (masalan "abduqahhor")
+    name: str         # ko'rinadigan nom (masalan "Abduqahhor")
+    token: str        # Uzum API tokeni
+    shop_ids: list[int]  # do'konlar; bo'sh bo'lsa — token orqali barchasi
+
+
+def _parse_accounts() -> list[Account]:
+    """
+    UZUM_ACCOUNTS:  Nomi|Token|Do'konID,Do'konID ; Nomi2|Token2|...
+
+    Misol:
+      UZUM_ACCOUNTS=Abduqahhor|TOKEN1|77165,77419 ; Kamoliddin|TOKEN2|11111,22222
+
+    UZUM_ACCOUNTS bo'sh bo'lsa — eski UZUM_TOKEN/UZUM_SHOP_IDS bitta
+    akkaunt sifatida ishlayveradi (backward compatibility).
+    """
+    raw = _env("UZUM_ACCOUNTS")
+    out: list[Account] = []
+    if raw:
+        for i, part in enumerate(raw.split(";")):
+            part = part.strip()
+            if not part:
+                continue
+            seg = [s.strip() for s in part.split("|")]
+            if len(seg) < 2 or not seg[0] or not seg[1]:
+                continue
+            name = seg[0]
+            shops: list[int] = []
+            if len(seg) > 2 and seg[2]:
+                shops = [int(x) for x in seg[2].split(",") if x.strip().isdigit()]
+            key = _slug(name) or f"acct{i + 1}"
+            out.append(Account(key=key, name=name, token=seg[1], shop_ids=shops))
+    if not out:
+        # Eski usul — bitta egasi (UZUM_TOKEN bilan)
+        name = _env("UZUM_ACCOUNT_NAME", "Asosiy") or "Asosiy"
+        out.append(
+            Account(
+                key=_slug(name) or "main",
+                name=name,
+                token=_env("UZUM_TOKEN"),
+                shop_ids=_env_list("UZUM_SHOP_IDS"),
+            )
+        )
+    return out
+
+
 @dataclass
 class Settings:
     # ---------- Telegram ----------
@@ -56,6 +114,9 @@ class Settings:
     uzum_token: str = field(default_factory=lambda: _env("UZUM_TOKEN"))
     # Bo'sh qoldirilsa — barcha do'konlar avtomatik olinadi
     uzum_shop_ids: list[int] = field(default_factory=lambda: _env_list("UZUM_SHOP_IDS"))
+    # Ko'p do'kon egasi:  Nomi|Token|Do'konIDlar ; Nomi2|Token2|...
+    # To'ldirilmasa — UZUM_TOKEN bitta egasi sifatida ishlayveradi.
+    uzum_accounts: list[Account] = field(default_factory=_parse_accounts)
     # Yorliq o'lchami: LARGE (58x40mm) yoki BIG (43x25mm)
     label_size: str = field(default_factory=lambda: _env("LABEL_SIZE", "LARGE") or "LARGE")
     # Mahsulot QR yorlig'i o'lchami (nomining bir qismi, masalan "58")
@@ -131,8 +192,10 @@ class Settings:
 
     @property
     def uzum_mock(self) -> bool:
-        """Uzum soxta rejimdami?"""
-        return self.mock_mode or not self.uzum_token
+        """Uzum to'liq soxta rejimdami? (hech bir egasida haqiqiy token yo'q)"""
+        if self.mock_mode:
+            return True
+        return not any(a.token for a in self.uzum_accounts)
 
     @property
     def billz_mock(self) -> bool:
@@ -151,9 +214,12 @@ class Settings:
 
     def mode_report(self) -> str:
         """Ishga tushganda qaysi xizmat qanday rejimda ekanini ko'rsatadi."""
-        u = "🧪 TEST" if self.uzum_mock else "🚀 REAL"
+        parts = []
+        for a in self.uzum_accounts:
+            mode = "🧪 TEST" if (self.mock_mode or not a.token) else "🚀 REAL"
+            parts.append(f"{a.name}: {mode}")
         b = "🧪 TEST" if self.billz_mock else "🚀 REAL"
-        return f"Uzum: {u}  |  Billz: {b}"
+        return "  |  ".join(parts) + f"  |  Billz: {b}"
 
 
 settings = Settings()

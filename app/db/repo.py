@@ -58,13 +58,18 @@ async def init_db() -> None:
 
     async with aiosqlite.connect(settings.db_path) as db:
         await db.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        # Yengil migratsiya: eski bazalarga yangi ustunni qo'shamiz
+        # Yengil migratsiya: eski bazalarga yangi ustunlarni qo'shamiz
         async with db.execute("PRAGMA table_info(order_assignments)") as cur:
             cols = {row[1] for row in await cur.fetchall()}
         for col, ddl in (("shop_id", "INTEGER"), ("notified_at", "TEXT")):
             if col not in cols:
                 await db.execute(f"ALTER TABLE order_assignments ADD COLUMN {col} {ddl}")
                 log.info("Bazaga %s ustuni qo'shildi", col)
+        async with db.execute("PRAGMA table_info(employees)") as cur:
+            emp_cols = {row[1] for row in await cur.fetchall()}
+        if "account_key" not in emp_cols:
+            await db.execute("ALTER TABLE employees ADD COLUMN account_key TEXT")
+            log.info("Bazaga account_key ustuni qo'shildi")
         await db.commit()
 
     # .env dagi ADMIN_IDS avtomatik admin bo'ladi
@@ -136,6 +141,20 @@ async def deactivate_employee(telegram_id: int) -> bool:
     try:
         cur = await db.execute(
             "UPDATE employees SET is_active = 0 WHERE telegram_id = ?", (telegram_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def set_employee_account(telegram_id: int, account_key: str | None) -> bool:
+    """Xodimni do'kon egasiga biriktiradi (None — barchasini ko'radi)."""
+    db = await _conn()
+    try:
+        cur = await db.execute(
+            "UPDATE employees SET account_key = ? WHERE telegram_id = ?",
+            (account_key, telegram_id),
         )
         await db.commit()
         return cur.rowcount > 0

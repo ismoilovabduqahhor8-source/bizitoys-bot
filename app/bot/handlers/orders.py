@@ -13,6 +13,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InputMediaPhoto,
                            Message)
 
 from app.bot import cards
+from app.bot.handlers import account_switch
 from app.bot.keyboards import employee_picker, group_actions, order_actions
 from app.db import repo
 from app.integrations.base import ApiError
@@ -37,6 +38,8 @@ ORDER_QUESTION = re.compile(r"(buyurtma|zakaz|order)", re.IGNORECASE)
 @router.message(Command("orders"))
 @router.message(F.text == "📋 Bugungi buyurtmalar")
 async def cmd_orders(message: Message, employee: dict) -> None:
+    if await account_switch.ensure_account(message, employee, "orders"):
+        return
     wait = await message.answer("⏳ Uzumdan olinmoqda…")
     try:
         items = await order_service.orders_for_user(employee)
@@ -81,6 +84,8 @@ async def cmd_report(message: Message, employee: dict) -> None:
     faqat /report BUYRUG'I orqali chaqiriladi, tugma matniga
     bog'lanmaydi.
     """
+    if await account_switch.ensure_account(message, employee, "report"):
+        return
     try:
         items = await order_service.orders_for_user(employee)
     except ApiError as e:
@@ -368,6 +373,8 @@ async def cb_cancel_assign(callback: CallbackQuery, employee: dict) -> None:
 @router.message(F.text == "🏷 Yorliqlar")
 async def cmd_labels_bulk(message: Message, employee: dict) -> None:
     """Barcha faol buyurtmalar uchun yorliq va QR."""
+    if await account_switch.ensure_account(message, employee, "yorliqlar"):
+        return
     try:
         items = await order_service.orders_for_user(employee)
     except ApiError as e:
@@ -656,6 +663,8 @@ async def cmd_urgent(message: Message, employee: dict) -> None:
     Nega birga? Xodim ertalab bitta buyruq bilan "bugun nimaga
     e'tibor berish kerak"ni ko'rishi uchun.
     """
+    if await account_switch.ensure_account(message, employee, "shosh"):
+        return
 
     wait = await message.answer("⏳ Tekshirilmoqda…")
 
@@ -738,3 +747,11 @@ async def cmd_urgent(message: Message, employee: dict) -> None:
         if len(low20) > 12:
             lines.append(f"\n… va yana {len(low20) - 12} ta.")
         await message.answer("\n".join(lines))
+
+
+# Ko'p egasi bo'lgan foydalanuvchiga tanlash tugmasi ko'rsatilgach,
+# shu funksiyalar chaqiriladi (account_switch).
+account_switch.register("orders", "orders", "cmd_orders")
+account_switch.register("report", "orders", "cmd_report")
+account_switch.register("yorliqlar", "orders", "cmd_labels_bulk")
+account_switch.register("shosh", "orders", "cmd_urgent")

@@ -127,6 +127,24 @@ faqat shu ikki joy o'zgaradi.
 
 Botda `/health` yozing — u ikkala API ham javob berayotganini aytadi.
 
+### Ko'p do'kon egasi (Abduqahhor + Kamoliddin)
+
+Bitta bot orqali bir nechta egasi ishlashi mumkin — har biri O'Z Uzum tokeni
+va do'konlari bilan. Hisobotlar va buyurtmalar **alohida-alohida** hisoblanadi:
+
+```env
+UZUM_ACCOUNTS=Abduqahhor|TOKEN1|77165,77419,79873,97583,123074 ; Kamoliddin|TOKEN2|11111,22222
+```
+
+- Foydalanuvchi bir nechta egasiga kira olsa, har bir Uzum-buyruqda (FBS,
+  hisobot, qoldiq, aktlar...) avval **egasini tanlash** tugmalari chiqadi.
+- Xodim faqat o'z egasining ma'lumotini ko'radi: `/egasi 123456789 Kamoliddin`.
+- Avtomatik hisobotlar (ertalabki, moliyaviy, soatlik) har egasiga **alohida**
+  yuboriladi, xabarda egasi nomi ko'rsatiladi.
+
+`UZUM_ACCOUNTS` bo'sh bo'lsa — eski `UZUM_TOKEN`/`UZUM_SHOP_IDS` bitta egasi
+sifatida ishlayveradi (hech narsa o'zgarmaydi).
+
 ---
 
 ## 💬 Buyruqlar
@@ -168,6 +186,7 @@ Buyruq yozish shart emas — oddiy savol ham tushuniladi:
 | `/set_min BT-1001 10` | Mahsulot uchun minimal qoldiq chegarasi |
 | `/soramoq` · `/bor <id>` · `/yoq <id>` | Davomat so'rash / belgilash |
 | `/postavka` | Postavka ochish (PVZ va vaqt tanlab) |
+| `/egasi 123456789 Abduqahhor` | Xodimni do'kon egasiga biriktirish (faqat o'sha egasini ko'radi) |
 | `/health` | Tizim va API holati |
 | `/moliyamaydon` | Moliya API maydonlarini ko'rish (tashxis) |
 

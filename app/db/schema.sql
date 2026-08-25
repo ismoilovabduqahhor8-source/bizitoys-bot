@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS employees (
     full_name     TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'employee',  -- 'admin' | 'employee'
     is_active     INTEGER NOT NULL DEFAULT 1,
+    account_key   TEXT,                              -- qaysi do'kon egasi (NULL = hammasi)
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

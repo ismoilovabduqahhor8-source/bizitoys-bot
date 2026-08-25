@@ -15,6 +15,7 @@ from aiogram.types import (
     Message,
 )
 
+from app.bot.handlers import account_switch
 from app.integrations.base import ApiError
 from app.config import settings
 from app.db import repo
@@ -70,8 +71,10 @@ def _fmt(v: int) -> str:
 
 @router.message(Command("qoldiq"))
 @router.message(F.text == "📉 Uzum qoldiq")
-async def cmd_uzum_stock(message: Message) -> None:
+async def cmd_uzum_stock(message: Message, employee: dict | None = None) -> None:
     """Uzum FBS omboridagi qoldiq — kam qolganlari birinchi."""
+    if employee and await account_switch.ensure_account(message, employee, "qoldiq"):
+        return
     wait = await message.answer("⏳ Uzumdan qoldiq so'ralmoqda…")
     try:
         items = await uzum.get_stocks()
@@ -107,8 +110,10 @@ async def cmd_uzum_stock(message: Message) -> None:
 
 @router.message(Command("sanoq"))
 @router.message(F.text == "🔢 FBS / FBO")
-async def cmd_scheme_counts(message: Message) -> None:
+async def cmd_scheme_counts(message: Message, employee: dict | None = None) -> None:
     """Sxemalar bo'yicha buyurtmalar soni."""
+    if employee and await account_switch.ensure_account(message, employee, "sanoq"):
+        return
     from app.integrations.uzum import STATUS_TABS as TABS
 
     wait = await message.answer("⏳ Sanalmoqda… (~15 soniya)")
@@ -222,6 +227,8 @@ async def cmd_report(message: Message, employee: dict) -> None:
     uch tugma ko'rsatiladi: Bugun / Kecha / Bu oy — xodim kerakli
     davrni tanlaydi.
     """
+    if await account_switch.ensure_account(message, employee, "hisobot"):
+        return
     from app.services.report import PERIOD_LABELS
 
     rows = [
@@ -292,6 +299,8 @@ async def cmd_analysis(message: Message, employee: dict) -> None:
     Bu ajratish muhim: raqamlar har doim to'g'ri bo'ladi, AI esa
     faqat tushuntirish uchun ishlatiladi.
     """
+    if await account_switch.ensure_account(message, employee, "tahlil"):
+        return
     from app.integrations.ai import ai
     from app.services import analytics
 
@@ -342,7 +351,7 @@ async def cmd_analysis(message: Message, employee: dict) -> None:
 
 @router.message(Command("bloklangan"))
 @router.message(F.text == "🚫 Bloklangan")
-async def cmd_blocked(message: Message) -> None:
+async def cmd_blocked(message: Message, employee: dict | None = None) -> None:
     """
     Uzum tomonidan bloklangan (sotuvga chiqarilmagan) mahsulotlar.
 
@@ -350,6 +359,8 @@ async def cmd_blocked(message: Message) -> None:
     sotilmaydi, chunki Uzum ularni bloklagan (rasm, hujjat,
     taqiqlangan toifa sababli).
     """
+    if employee and await account_switch.ensure_account(message, employee, "bloklangan"):
+        return
     from app.services import analytics
 
     wait = await message.answer("⏳ Tekshirilmoqda…")
@@ -379,3 +390,12 @@ async def cmd_blocked(message: Message) -> None:
 
     lines.append(f"<i>→ {found['tavsiya']}</i>")
     await wait.edit_text("\n".join(lines))
+
+
+# Ko'p egasi bo'lgan foydalanuvchiga tanlash tugmasi ko'rsatilgach,
+# shu funksiyalar chaqiriladi (account_switch).
+account_switch.register("qoldiq", "stock", "cmd_uzum_stock", wants_employee=False)
+account_switch.register("sanoq", "stock", "cmd_scheme_counts", wants_employee=False)
+account_switch.register("hisobot", "stock", "cmd_report")
+account_switch.register("tahlil", "stock", "cmd_analysis")
+account_switch.register("bloklangan", "stock", "cmd_blocked", wants_employee=False)

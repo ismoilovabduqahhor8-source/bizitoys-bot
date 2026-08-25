@@ -17,6 +17,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
 from app.db import repo
+from app.integrations.uzum import set_account
+from app.services import accounts as accounts_service
 from app.services import orders as order_service
 from app.bot.keyboards import order_actions
 from app.services import notifications as notif
@@ -31,6 +33,30 @@ def _parse_hhmm(value: str, default: tuple[int, int]) -> tuple[int, int]:
         return int(h), int(m)
     except Exception:
         return default
+
+
+def _per_account(func):
+    """
+    Vazifani HAR do'kon egasi uchun alohida ishga tushiradi.
+
+    Bitta egasi bo'lsa — eski xatti-harakat (account_key=None).
+    Ko'p egasi bo'lsa — har bir egasi o'z tokeni va do'konlari bilan
+    alohida hisobot/tekshiruv oladi.
+    """
+    async def wrapper(*args):
+        accts = accounts_service.all_accounts()
+        if len(accts) <= 1:
+            await func(*args, account_key=None)
+            return
+        for a in accts:
+            try:
+                await func(*args, account_key=a.key)
+            except Exception as e:
+                log.warning("Vazifa %s (%s) xatosi: %s",
+                            getattr(func, "__name__", "?"), a.name, e)
+
+    wrapper.__name__ = f"per_account_{getattr(func, '__name__', '?')}"
+    return wrapper
 
 
 async def send_daily_report(bot: Bot, title: str) -> None:
@@ -61,13 +87,16 @@ async def send_daily_report(bot: Bot, title: str) -> None:
             log.warning("Xabar yuborilmadi (chat %s): %s", chat_id, e)
 
 
-async def remind_late_tasks(bot: Bot) -> None:
+async def remind_late_tasks(bot: Bot, account_key: str | None = None) -> None:
     """
     Uzumning HAQIQIY muddatiga qarab eslatma yuboradi.
 
     Ilgari "4 soatdan beri qotib turibdi" degan o'ylab topilgan qoida edi.
     Endi deliverUntil ishlatiladi — xodim aniq necha soat qolganini biladi.
     """
+    if account_key:
+        set_account(account_key)
+
     try:
         orders = await order_service.sync_today()
     except Exception as e:
@@ -88,6 +117,7 @@ async def remind_late_tasks(bot: Bot) -> None:
             continue
 
         text = (
+            f"{notif._owner_label(account_key)}"
             "⏰ <b>Muddat yaqinlashdi</b>\n\n"
             + order_service.format_order_card(order)
             + "\n\nIltimos, holatini yangilang."
@@ -111,6 +141,7 @@ async def remind_late_tasks(bot: Bot) -> None:
         try:
             await bot.send_message(
                 settings.group_chat_id,
+                f"{notif._owner_label(account_key)}"
                 "⚠️ <b>Mas'ul biriktirilmagan, muddati yaqin</b>\n\n"
                 + "\n".join(lines)
                 + "\n\nKim oladi? /orders",
@@ -146,7 +177,7 @@ async def check_low_stock(bot: Bot) -> None:
             log.warning("Ogohlantirish yuborilmadi (%s): %s", chat_id, e)
 
 
-async def prefetch_orders() -> None:
+async def prefetch_orders(account_key: str | None = None) -> None:
     """
     Fonda buyurtmalarni oldindan yuklab qo'yadi.
 
@@ -154,9 +185,13 @@ async def prefetch_orders() -> None:
     darrov chiqadi. Bu Uzumning sekundiga 2 so'rov chegarasini
     aylanib o'tishning eng oddiy yo'li.
     """
+    if account_key:
+        set_account(account_key)
+
     try:
         orders = await order_service.sync_today()
-        log.debug("Kesh yangilandi: %d ta buyurtma", len(orders))
+        log.debug("Kesh yangilandi (%s): %d ta buyurtma",
+                  account_key or "main", len(orders))
     except Exception as e:
         log.warning("Kesh yangilanmadi: %s", e)
 
@@ -171,15 +206,15 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     mh, mm = _parse_hhmm(settings.morning_report_at, (9, 30))
     eh, em = _parse_hhmm(settings.evening_report_at, (18, 30))
 
-    # --- Kunlik hisobotlar ---
+    # --- Kunlik hisobotlar (har egasi uchun alohida) ---
     sched.add_job(
-        notif.daily_digest,
+        _per_account(notif.daily_digest),
         CronTrigger(hour=mh, minute=mm, timezone=tz),
         args=[bot, "🌅 Ertalabki hisobot"],
         id="morning_report",
     )
     sched.add_job(
-        notif.daily_digest,
+        _per_account(notif.daily_digest),
         CronTrigger(hour=eh, minute=em, timezone=tz),
         args=[bot, "🌆 Kechqurungi hisobot"],
         id="evening_report",
@@ -187,7 +222,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     # --- Yangi buyurtmalarni kuzatish (eng muhimi) ---
     sched.add_job(
-        notif.watch_new_orders,
+        _per_account(notif.watch_new_orders),
         IntervalTrigger(minutes=settings.new_order_check_min),
         args=[bot],
         id="watch_new",
@@ -196,7 +231,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     # --- "Hali ish bor" eslatmasi ---
     sched.add_job(
-        notif.nudge_pending,
+        _per_account(notif.nudge_pending),
         IntervalTrigger(minutes=settings.nudge_every_min),
         args=[bot],
         id="nudge",
@@ -204,7 +239,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     # --- Muddat ogohlantirishlari ---
     sched.add_job(
-        remind_late_tasks,
+        _per_account(remind_late_tasks),
         IntervalTrigger(minutes=settings.late_check_every_min),
         args=[bot],
         id="late_tasks",
@@ -212,7 +247,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     # --- Fonda ma'lumotni yangilab turish (tezlik uchun) ---
     sched.add_job(
-        prefetch_orders,
+        _per_account(prefetch_orders),
         IntervalTrigger(minutes=2),
         id="prefetch_orders",
         next_run_time=datetime.now(tz),
@@ -221,7 +256,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     # --- Skladga kunlik ro'yxat (shaxsiy chatga) ---
     kh, km = _parse_hhmm(settings.sklad_list_at, (11, 0))
     sched.add_job(
-        notif.sklad_daily_list,
+        _per_account(notif.sklad_daily_list),
         CronTrigger(hour=kh, minute=km, timezone=tz),
         args=[bot],
         id="sklad_list",
@@ -230,7 +265,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     # --- Kunlik moliyaviy hisobot (adminlarga, kechagi to'liq kun) ---
     rh, rm = _parse_hhmm(settings.money_report_at, (8, 0))
     sched.add_job(
-        notif.money_report,
+        _per_account(notif.money_report),
         CronTrigger(hour=rh, minute=rm, timezone=tz),
         args=[bot],
         id="money_report",
@@ -238,7 +273,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     # --- Soatlik hisobot (adminlarga, 08:00–23:00, har soat) ---
     sched.add_job(
-        notif.hourly_report,
+        _per_account(notif.hourly_report),
         CronTrigger(hour="8-23", minute=0, timezone=tz),
         args=[bot],
         id="hourly_report",
@@ -246,7 +281,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     # --- FBO yuk xatlari qabul qilinganini kuzatish (har 20 daqiqada) ---
     sched.add_job(
-        notif.check_fbo_invoices,
+        _per_account(notif.check_fbo_invoices),
         IntervalTrigger(minutes=20, timezone=tz),
         args=[bot],
         id="check_fbo_invoices",
@@ -262,7 +297,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     # --- Mahsulot holati (kam qoldiq, sotuvga chiqdi, pullik saqlash) ---
     # Endi Uzum'ning O'ZIDAN — Billz emas.
     sched.add_job(
-        notif.check_product_state,
+        _per_account(notif.check_product_state),
         IntervalTrigger(minutes=30, timezone=tz),
         args=[bot],
         id="check_product_state",
@@ -270,6 +305,8 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
 
     sched.start()
     log.info("Scheduler ishga tushdi (%s):", settings.timezone)
+    log.info("  • do'kon egasi:              %s",
+             ", ".join(a.name for a in accounts_service.all_accounts()))
     log.info("  • yangi buyurtma tekshiruvi: har %d daqiqada", settings.new_order_check_min)
     log.info("  • «ish bor» eslatmasi:       har %d daqiqada (%d:00–%d:00)",
              settings.nudge_every_min, settings.work_from, settings.work_to)

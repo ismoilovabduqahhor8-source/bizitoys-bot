@@ -31,6 +31,7 @@ from aiogram.types import (
 )
 
 from app.config import settings
+from app.bot.handlers import account_switch
 from app.db import repo
 from app.integrations.base import ApiError
 from app.integrations.uzum import uzum
@@ -93,6 +94,8 @@ async def cb_from_fbs(callback: CallbackQuery, employee: dict) -> None:
 @router.message(Command("postavka"))
 @router.message(F.text == "🚚 Postavka ochish")
 async def cmd_postavka(message: Message, employee: dict) -> None:
+    if await account_switch.ensure_account(message, employee, "postavka"):
+        return
     # Admin va yig'uvchi ochishi mumkin — yig'uvchi tovarni yig'ib
     # bo'lgach, o'zi darrov postavka ocha oladi, admin kutish shart emas.
     if employee["role"] not in (repo.ROLE_ADMIN, repo.ROLE_PICKER):
@@ -779,3 +782,8 @@ async def cmd_probe_slots(message: Message, employee: dict) -> None:
         "<i>Shu javobni Claude'ga yuboring — qaysi maydon "
         "timeSlotUuid ekanini aniqlaymiz.</i>"
     )
+
+
+# Ko'p egasi bo'lgan foydalanuvchiga tanlash tugmasi ko'rsatilgach,
+# shu funksiyalar chaqiriladi (account_switch).
+account_switch.register("postavka", "postavka", "cmd_postavka")

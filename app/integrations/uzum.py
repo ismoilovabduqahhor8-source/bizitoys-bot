@@ -1,4 +1,4 @@
-"""
+﻿"""
 Uzum Market Seller API — integratsiya.
 
 Hujjat: https://api-seller.uzum.uz/api/seller-openapi/swagger/api-docs
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import logging
 import time
 from datetime import datetime, timedelta
@@ -209,10 +210,30 @@ def _derive_status(o: dict[str, Any]) -> str:
 class UzumClient(BaseClient):
     service_name = "Uzum"
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        token: str = "",
+        shop_ids: list[int] | None = None,
+        account_key: str = "",
+    ) -> None:
+        """
+        Bitta do'kon egasi uchun klient.
+
+        token      — egasining Uzum API tokeni (bo'sh bo'lsa — soxta rejim)
+        shop_ids   — faqat shu do'konlar (bo'sh bo'lsa — barchasi olinadi)
+        account_key— egasining texnik identifikatori ("abduqahhor" va h.k.)
+        """
+        self._token = token or settings.uzum_token
+        self._shop_ids_override = (
+            list(shop_ids) if shop_ids is not None else (settings.uzum_shop_ids or None)
+        )
+        self.account_key = account_key or "main"
+        # Egasining soxta rejimi: global MOCK yoki bu egasida token yo'q
+        self.mock = settings.mock_mode or not self._token
+
         super().__init__(
             base_url=settings.uzum_base_url,
-            headers={"Authorization": settings.uzum_token, "Accept": "application/json"},
+            headers={"Authorization": self._token, "Accept": "application/json"},
         )
         self._lock = asyncio.Lock()
         self._last_call = 0.0
@@ -297,7 +318,7 @@ class UzumClient(BaseClient):
     #  DO'KONLAR
     # ---------------------------------------------------------------
     async def get_shops(self, refresh: bool = False) -> list[dict[str, Any]]:
-        if settings.uzum_mock:
+        if self.mock:
             return [{"id": i, "name": n} for i, n in mock_data.SHOPS]
         if self._shops_cache is not None and not refresh:
             return self._shops_cache
@@ -317,8 +338,8 @@ class UzumClient(BaseClient):
     async def _shop_ids(self, given: list[int] | None = None) -> list[int]:
         if given:
             return given
-        if settings.uzum_shop_ids:
-            return settings.uzum_shop_ids
+        if self._shop_ids_override:
+            return self._shop_ids_override
         return [s["id"] for s in await self.get_shops()]
 
     # ---------------------------------------------------------------
@@ -339,7 +360,7 @@ class UzumClient(BaseClient):
         so'rovga faqat CREATED qaytaradi). shopIds massiv bo'lgani uchun
         barcha do'konlar bitta so'rovda so'raladi.
         """
-        if settings.uzum_mock:
+        if self.mock:
             names = dict(mock_data.SHOPS)
             return [self._normalize(o, names) for o in mock_data.mock_orders(day)]
 
@@ -405,7 +426,7 @@ class UzumClient(BaseClient):
         Sanoq manzili (/v2/fbs/orders/count) esa scheme'ni umuman
         qabul qilmaydi — shuning uchun sanoq ro'yxatdan olinadi.
         """
-        if settings.uzum_mock:
+        if self.mock:
             return {
                 "FBS": {S_CREATED: 0, S_PACKING: 7, S_PENDING_DELIVERY: 3,
                         S_DELIVERING: 24},
@@ -427,7 +448,7 @@ class UzumClient(BaseClient):
 
     async def get_status_counts(self, shop_ids: list[int] | None = None) -> dict[str, int]:
         """Har bir status bo'yicha soni (arzon count manzili orqali)."""
-        if settings.uzum_mock:
+        if self.mock:
             return {S_CREATED: 0, S_PACKING: 7, S_PENDING_DELIVERY: 4,
                     S_ACCEPTED_AT_DP: 95, S_COMPLETED: 4006}
 
@@ -467,7 +488,7 @@ class UzumClient(BaseClient):
         CREATED -> PACKING. Kabinetdagi «Принять» tugmasining o'zi.
         Muddat o'tib ketsa Uzum rad etadi (seller-order-03).
         """
-        if settings.uzum_mock:
+        if self.mock:
             return True, ""
         try:
             await self.post(ENDPOINTS["confirm"].format(order_id=order_id))
@@ -497,11 +518,11 @@ class UzumClient(BaseClient):
         maydon nomlari moslashuvchan o'qiladi va birinchi so'rovda
         logga yoziladi.
         """
-        if settings.uzum_mock:
+        if self.mock:
             return mock_data.mock_finance()
 
         if shop_ids is None:
-            shop_ids = settings.uzum_shop_ids or [s["id"] for s in await self.get_shops()]
+            shop_ids = self._shop_ids_override or [s["id"] for s in await self.get_shops()]
 
         out: list[dict[str, Any]] = []
         seen: set[Any] = set()
@@ -622,11 +643,11 @@ class UzumClient(BaseClient):
         shop_ids: list[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Xarajatlar va qaytarilgan mablag'lar."""
-        if settings.uzum_mock:
+        if self.mock:
             return mock_data.mock_expenses()
 
         if shop_ids is None:
-            shop_ids = settings.uzum_shop_ids or [s["id"] for s in await self.get_shops()]
+            shop_ids = self._shop_ids_override or [s["id"] for s in await self.get_shops()]
 
         # Moliya bo'limi sanani soniyada kutadi
         base = [
@@ -691,7 +712,7 @@ class UzumClient(BaseClient):
         SKU'ning kunlik o'rtacha sotuvi. 7 kunlik taxminiy sotuvni
         shundan chiqaramiz: avgdsales × 7.
         """
-        if settings.uzum_mock:
+        if self.mock:
             demo = [
                 ("BT-1001", "Yumshoq ayiqcha", 14, 9, False, 5, 10, 0, False, 0, 0),
                 ("BT-1002", "Konstruktor", 3, 22, False, 3, 0, 0, False, 0, 0),
@@ -711,7 +732,7 @@ class UzumClient(BaseClient):
             ]
 
         if shop_ids is None:
-            shop_ids = settings.uzum_shop_ids or [s["id"] for s in await self.get_shops()]
+            shop_ids = self._shop_ids_override or [s["id"] for s in await self.get_shops()]
         names = await self.shop_names()
 
         out: list[dict[str, Any]] = []
@@ -800,7 +821,7 @@ class UzumClient(BaseClient):
 
         Qaytaradi: (yuk_xatlari, tashxis — sahifalar bo'yicha).
         """
-        if settings.uzum_mock:
+        if self.mock:
             return mock_data.mock_fbo_invoices(), []
 
         names = await self.shop_names()
@@ -888,7 +909,7 @@ class UzumClient(BaseClient):
         keladi (invoice["products"]) — bu metod faqat zaxira sifatida
         qoldirilgan, agar kelajakda alohida so'rov kerak bo'lsa.
         """
-        if settings.uzum_mock:
+        if self.mock:
             return mock_data.mock_fbo_invoice_products()
 
         try:
@@ -936,7 +957,7 @@ class UzumClient(BaseClient):
         return None
 
     async def check_token(self) -> bool:
-        if settings.uzum_mock:
+        if self.mock:
             return True
         try:
             await self.get(ENDPOINTS["shops"], params={"page": 0, "size": 1})
@@ -1025,7 +1046,7 @@ class UzumClient(BaseClient):
         `size` majburiy: LARGE 58x40mm, BIG 43x25mm.
         Yorliqda buyurtma kodi ham, mahsulot QR kodi ham bor.
         """
-        if settings.uzum_mock:
+        if self.mock:
             return None, None
         raw = await self.get(
             ENDPOINTS["labels"].format(order_id=order_id),
@@ -1038,7 +1059,7 @@ class UzumClient(BaseClient):
     # ---------------------------------------------------------------
     async def get_stocks(self, shop_ids: list[int] | None = None) -> list[dict[str, Any]]:
         """FBS ombordagi SKU qoldiqlari (RestSellerSkuFbsAmountDto)."""
-        if settings.uzum_mock:
+        if self.mock:
             return [
                 {"sku": s, "name": n, "qty": q, "shop_id": 0, "shop_name": "Test"}
                 for s, n, q in [("BT-1001", "Yumshoq ayiqcha", 3),
@@ -1091,7 +1112,7 @@ class UzumClient(BaseClient):
         Sukut bo'yicha faqat ISH QOLGANLARI: «Создана» va qabul
         jarayonidagilar. «Принята» tugagan — xodimga vazifa yo'q.
         """
-        if settings.uzum_mock:
+        if self.mock:
             demo = [
                 {"id": 120001196374, "number": "120001196374", "status": INV_CREATED,
                  "status_label": INVOICE_LABELS[INV_CREATED],
@@ -1173,7 +1194,7 @@ class UzumClient(BaseClient):
 
     async def get_invoice_items(self, invoice_id: Any) -> list[dict[str, Any]]:
         """Akt ichidagi mahsulotlar, SKU bo'yicha jamlangan."""
-        if settings.uzum_mock:
+        if self.mock:
             return [
                 {"sku": "SEENSOR-PIMADKI-AMETIC", "name": "Plastilin to'plami",
                  "qty": 96, "accepted": 64, "not_accepted": 32, "price": 32_000,
@@ -1209,7 +1230,7 @@ class UzumClient(BaseClient):
 
     async def get_invoice_order_ids(self, invoice_id: Any) -> list[str]:
         """Aktdagi buyurtma raqamlari — yorliqlarni olish uchun."""
-        if settings.uzum_mock:
+        if self.mock:
             return ["118464581", "118439721"]
         raw = await self.get(ENDPOINTS["invoice_orders"].format(invoice_id=invoice_id))
         rows = self._extract_list(raw, ("orders", "items", "content"))
@@ -1221,7 +1242,7 @@ class UzumClient(BaseClient):
         return out
 
     async def get_invoice_pdf(self, invoice_id: Any) -> tuple[bytes | None, str | None]:
-        if settings.uzum_mock:
+        if self.mock:
             return None, None
         raw = await self.get(ENDPOINTS["invoice_print"].format(invoice_id=invoice_id))
         return self._decode_document(raw), None
@@ -1249,11 +1270,11 @@ class UzumClient(BaseClient):
         """
         if self._seller_id is not None:
             return self._seller_id
-        if settings.uzum_mock:
+        if self.mock:
             return 12345
 
         if shop_ids is None:
-            shop_ids = settings.uzum_shop_ids or [s["id"] for s in await self.get_shops()]
+            shop_ids = self._shop_ids_override or [s["id"] for s in await self.get_shops()]
 
         params = [("shopIds", str(i)) for i in shop_ids] + [
             ("page", "0"), ("size", "5")
@@ -1312,7 +1333,7 @@ class UzumClient(BaseClient):
         bo'sh vaqt oynasi bo'lsa. Shuning uchun ko'p buyurtma birdan
         so'ralsa bo'sh kelishi mumkin — kichikroq to'plamni sinaymiz.
         """
-        if settings.uzum_mock:
+        if self.mock:
             return [
                 {"uuid": "dop-1", "address": "Toshkent sh., Sergeli tumani, Nilufar 77/7"},
                 {"uuid": "dop-2", "address": "Toshkent sh., Chilonzor tumani, Katta halqa 1"},
@@ -1359,7 +1380,7 @@ class UzumClient(BaseClient):
         self, dop_uuid: str, orders: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Tanlangan punkt uchun bo'sh vaqt oynalari."""
-        if settings.uzum_mock:
+        if self.mock:
             now = datetime.now(TZ)
             return [
                 {"uuid": f"slot-{i}",
@@ -1407,7 +1428,7 @@ class UzumClient(BaseClient):
         hech nima yaratilmaydi — bu xavfsiz. Birinchi muvaffaqiyatda
         to'xtaymiz, ikkita postavka ochilib qolmasin.
         """
-        if settings.uzum_mock:
+        if self.mock:
             return {"ok": True, "id": 999, "number": 120009999999,
                     "used": "mock", "mock": True}
 
@@ -1501,7 +1522,7 @@ class UzumClient(BaseClient):
     async def get_barcode_type_id(self) -> int | None:
         if self._barcode_type_id is not None:
             return self._barcode_type_id
-        if settings.uzum_mock:
+        if self.mock:
             return 1
         try:
             raw = await self.get(ENDPOINTS["barcode_types"])
@@ -1525,7 +1546,7 @@ class UzumClient(BaseClient):
         """barcode / skuTitle -> skuId moslik jadvali."""
         if shop_id in self._sku_maps:
             return self._sku_maps[shop_id]
-        if settings.uzum_mock:
+        if self.mock:
             return {}
 
         mapping: dict[str, int] = {}
@@ -1580,7 +1601,7 @@ class UzumClient(BaseClient):
         Qaytaradi: (pdf, tashxis). Tashxis qaysi bosqichda
         to'xtaganini aniq aytadi — taxmin qilish shart bo'lmasin.
         """
-        if settings.uzum_mock:
+        if self.mock:
             return None, "test rejimi"
         if not sku_keys:
             return None, "SKU ro'yxati bo'sh"
@@ -1638,4 +1659,68 @@ class UzumClient(BaseClient):
         return pdf, (f"⚠️ {len(topilmadi)} ta SKU topilmadi" if topilmadi else "")
 
 
-uzum = UzumClient()
+# ============================================================
+#  KO'P AKKAUNT (do'kon egasi) — joriy egasini tanlash va proxy
+# ============================================================
+# Har bir egasi (tokeni) uchun ALOHIDA UzumClient yashaydi. Qaysi egasi
+# ishlatilishi asyncio ContextVar orqali aniqlanadi: handler tanlash
+# tugmasini ko'rsatganda yoki scheduler vazifasi akkauntni aylanib
+# chiqqanda `set_account(key)` chaqiriladi.
+_account_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "uzum_account_key", default=""
+)
+
+_CLIENTS: dict[str, UzumClient] = {}
+
+
+def _account(key: str):
+    """Egasini config'dan topadi; topilmasa birinchisini qaytaradi."""
+    for a in settings.uzum_accounts:
+        if a.key == key:
+            return a
+    return settings.uzum_accounts[0]
+
+
+def default_account_key() -> str:
+    """Birinch (asosiy) egasining kaliti."""
+    return settings.uzum_accounts[0].key
+
+
+def get_client(account_key: str = "") -> UzumClient:
+    """Egasiga tegishli klientni qaytaradi (har biri o'z keshiga ega)."""
+    key = account_key or current_account()
+    if key not in _CLIENTS:
+        acct = _account(key)
+        _CLIENTS[key] = UzumClient(
+            token=acct.token,
+            shop_ids=acct.shop_ids or None,
+            account_key=acct.key,
+        )
+    return _CLIENTS[key]
+
+
+def set_account(account_key: str) -> None:
+    """Joriy kontekst uchun egasini belgilaydi."""
+    _account_var.set(account_key)
+
+
+def current_account() -> str:
+    """Joriy kontekstdagi egasi; tanlanmagan bo'lsa — asosiy."""
+    key = _account_var.get()
+    if key and any(a.key == key for a in settings.uzum_accounts):
+        return key
+    return default_account_key()
+
+
+class _UzumProxy:
+    """`uzum` obyekti — barcha chaqiriqlarni joriy egasining clientiga uzatadi.
+
+    Eski kod `from app.integrations.uzum import uzum` deb yozgan — o'zgarmaydi,
+    lekin endi har bir chaqiriq hozirgi tanlangan egasining clientiga boradi.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_client(), name)
+
+
+uzum = _UzumProxy()

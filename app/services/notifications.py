@@ -30,6 +30,7 @@ from app.bot import cards
 from app.bot.keyboards import group_actions
 from app.config import settings
 from app.db import repo
+from app.integrations.uzum import set_account
 from app.services import grouping
 from app.services import orders as order_service
 from app.services import workflow
@@ -47,6 +48,34 @@ def in_work_hours() -> bool:
     return settings.work_from <= now.hour < settings.work_to
 
 
+def _owner_label(account_key: str | None) -> str:
+    """Ko'p egasi bo'lsa, xabarga egasi nomini qo'shadi."""
+    if not account_key or len(settings.uzum_accounts) <= 1:
+        return ""
+    for a in settings.uzum_accounts:
+        if a.key == account_key:
+            return f"🏪 <b>{a.name}</b>\n"
+    return ""
+
+
+async def _recipients(account_key: str | None, include_group: bool) -> list[int]:
+    """
+    Hisobot qabul qiluvchilari.
+
+    Bitta egasi (account_key=None): adminlar (+ guruh) — eski xatti-harakat.
+    Ko'p egasi: adminlar + o'sha egasiga biriktirilgan xodimlar (+ guruh).
+    """
+    targets: set[int] = set()
+    for emp in await repo.list_employees():
+        if emp["role"] == repo.ROLE_ADMIN:
+            targets.add(emp["telegram_id"])
+        elif account_key and emp.get("account_key") == account_key:
+            targets.add(emp["telegram_id"])
+    if include_group and settings.group_chat_id:
+        targets.add(settings.group_chat_id)
+    return list(targets)
+
+
 async def _seen_ids() -> set[str]:
     raw = await repo.kv_get(KV_SEEN, "") or ""
     return {x for x in raw.split(",") if x}
@@ -60,10 +89,12 @@ async def _remember(ids: set[str]) -> None:
 # ------------------------------------------------------------------
 #  1. YANGI BUYURTMALAR
 # ------------------------------------------------------------------
-async def watch_new_orders(bot: Bot) -> None:
+async def watch_new_orders(bot: Bot, account_key: str | None = None) -> None:
     """Yangi ish paydo bo'lsa — darrov guruhga, akt bo'yicha guruhlab."""
     if not settings.group_chat_id:
         return
+    if account_key:
+        set_account(account_key)
 
     try:
         orders = await order_service.sync_today()
@@ -87,11 +118,18 @@ async def watch_new_orders(bot: Bot) -> None:
     )
 
     sklad = await repo.employees_by_role(repo.ROLE_SKLAD)
+    if account_key:
+        # Ko'p egasi — faqat shu egasiga biriktirilgan sklad eslatiladi
+        sklad = [
+            p for p in sklad
+            if not p.get("account_key") or p["account_key"] == account_key
+        ]
     mention = " ".join(
         f'<a href="tg://user?id={p["telegram_id"]}">{p["full_name"]}</a>' for p in sklad
     )
 
     header = (
+        f"{_owner_label(account_key)}"
         f"🔔 <b>{len(fresh)} ta yangi buyurtma</b> · {total_items} dona mahsulot\n"
     )
     if mention:
@@ -117,7 +155,7 @@ async def watch_new_orders(bot: Bot) -> None:
 # ------------------------------------------------------------------
 #  2. TURIB QOLGAN ISH
 # ------------------------------------------------------------------
-async def nudge_pending(bot: Bot) -> None:
+async def nudge_pending(bot: Bot, account_key: str | None = None) -> None:
     """
     Ish bor, lekin hech kim tegmayapti — eslatib turadi.
 
@@ -126,6 +164,8 @@ async def nudge_pending(bot: Bot) -> None:
     """
     if not settings.group_chat_id or not in_work_hours():
         return
+    if account_key:
+        set_account(account_key)
 
     try:
         orders = await order_service.sync_today()
@@ -142,7 +182,11 @@ async def nudge_pending(bot: Bot) -> None:
     for o in active:
         by_stage[o["status"]] = by_stage.get(o["status"], 0) + 1
 
-    lines = [f"⏳ <b>Hali {len(active)} ta buyurtma ustida ish bor</b>", ""]
+    lines = [
+        f"{_owner_label(account_key)}"
+        f"⏳ <b>Hali {len(active)} ta buyurtma ustida ish bor</b>",
+        "",
+    ]
     for code in workflow.ACTIVE_STAGES:
         n = by_stage.get(code)
         if not n:
@@ -169,8 +213,11 @@ async def nudge_pending(bot: Bot) -> None:
 # ------------------------------------------------------------------
 #  3. KUNLIK YAKUN
 # ------------------------------------------------------------------
-async def daily_digest(bot: Bot, title: str) -> None:
+async def daily_digest(bot: Bot, title: str, account_key: str | None = None) -> None:
     """Ertalabki va kechqurungi hisobot — guruhga va adminlarga."""
+    if account_key:
+        set_account(account_key)
+
     try:
         orders = await order_service.sync_today()
     except Exception as e:
@@ -178,7 +225,7 @@ async def daily_digest(bot: Bot, title: str) -> None:
         return
 
     counts = order_service.summarize(orders)
-    text = order_service.format_summary(counts, title)
+    text = f"{_owner_label(account_key)}{order_service.format_summary(counts, title)}"
 
     active = [o for o in orders if workflow.is_active(o["status"])]
     if active:
@@ -186,14 +233,7 @@ async def daily_digest(bot: Bot, title: str) -> None:
         if shops:
             text += "\n\n" + shops
 
-    targets: set[int] = set()
-    if settings.group_chat_id:
-        targets.add(settings.group_chat_id)
-    for emp in await repo.list_employees():
-        if emp["role"] == repo.ROLE_ADMIN:
-            targets.add(emp["telegram_id"])
-
-    for chat_id in targets:
+    for chat_id in await _recipients(account_key, include_group=True):
         try:
             await bot.send_message(chat_id, text)
         except Exception as e:
@@ -203,7 +243,7 @@ async def daily_digest(bot: Bot, title: str) -> None:
 # ------------------------------------------------------------------
 #  4. SKLAD UCHUN KUNLIK RO'YXAT (soat 11:00)
 # ------------------------------------------------------------------
-async def sklad_daily_list(bot: Bot) -> None:
+async def sklad_daily_list(bot: Bot, account_key: str | None = None) -> None:
     """
     Sklad xodimlariga yig'ilishi kerak bo'lgan mahsulotlar ro'yxati.
 
@@ -211,7 +251,16 @@ async def sklad_daily_list(bot: Bot) -> None:
     Mahsulotlar SKU bo'yicha jamlanadi: bir xil tovar 5 ta buyurtmada
     bo'lsa, sklad uni bir marta 5 dona qilib chiqaradi. Bu ancha tez.
     """
+    if account_key:
+        set_account(account_key)
+
     sklad = await repo.employees_by_role(repo.ROLE_SKLAD)
+    if account_key:
+        # Ko'p egasi — faqat shu egasiga biriktirilgan sklad
+        sklad = [
+            p for p in sklad
+            if not p.get("account_key") or p["account_key"] == account_key
+        ]
     if not sklad:
         log.info("Sklad ro'yxati: xodim yo'q")
         return
@@ -236,6 +285,7 @@ async def sklad_daily_list(bot: Bot) -> None:
     total = sum(r["qty"] for r in all_items)
 
     header = (
+        f"{_owner_label(account_key)}"
         f"🏬 <b>Bugungi yig'ish ro'yxati</b>\n"
         f"{datetime.now(TZ):%d-%b, %H:%M}\n\n"
         f"📦 {len(need)} ta buyurtma\n"
@@ -293,7 +343,7 @@ async def sklad_daily_list(bot: Bot) -> None:
 # ------------------------------------------------------------------
 #  5. KUNLIK MOLIYAVIY HISOBOT (adminlarga, PDF bilan)
 # ------------------------------------------------------------------
-async def money_report(bot: Bot) -> None:
+async def money_report(bot: Bot, account_key: str | None = None) -> None:
     """
     Kunlik moliyaviy hisobot — soat 08:00 da, faqat adminlarga.
 
@@ -313,10 +363,11 @@ async def money_report(bot: Bot) -> None:
     from aiogram.types import BufferedInputFile
     from app.services import report, report_image
 
-    admins = [
-        e for e in await repo.list_employees() if e["role"] == repo.ROLE_ADMIN
-    ]
-    if not admins:
+    if account_key:
+        set_account(account_key)
+
+    recipients = await _recipients(account_key, include_group=False)
+    if not recipients:
         return
 
     yesterday = datetime.now(TZ) - timedelta(days=1)
@@ -333,10 +384,9 @@ async def money_report(bot: Bot) -> None:
         return
 
     img = report_image.render(rep)
-    text = report.as_full_text(full)
+    text = f"{_owner_label(account_key)}{report.as_full_text(full)}"
 
-    for a in admins:
-        uid = a["telegram_id"]
+    for uid in recipients:
         try:
             if img:
                 await bot.send_photo(
@@ -349,10 +399,10 @@ async def money_report(bot: Bot) -> None:
         except Exception as e:
             log.warning("Hisobot yuborilmadi (%s): %s", uid, e)
 
-    log.info("Moliyaviy hisobot %d adminga yuborildi", len(admins))
+    log.info("Moliyaviy hisobot %d ta qabul qiluvchiga yuborildi", len(recipients))
 
 
-async def hourly_report(bot: Bot) -> None:
+async def hourly_report(bot: Bot, account_key: str | None = None) -> None:
     """
     Soatlik hisobot — kun bo'yi (08:00–23:00), faqat adminlarga.
 
@@ -374,12 +424,14 @@ async def hourly_report(bot: Bot) -> None:
     from aiogram.types import BufferedInputFile
     from app.services import report, report_image
 
-    admins = [
-        e for e in await repo.list_employees() if e["role"] == repo.ROLE_ADMIN
-    ]
-    if not admins:
+    if account_key:
+        set_account(account_key)
+
+    recipients = await _recipients(account_key, include_group=False)
+    if not recipients:
         return
 
+    kv_key = f"hourly_cumulative:{account_key or 'main'}"
     now = datetime.now(TZ)
     hour_end = now.replace(minute=0, second=0, microsecond=0)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -394,7 +446,7 @@ async def hourly_report(bot: Bot) -> None:
 
     # Oldingi saqlangan jamini o'qiymiz (umumiy va HAR SKU bo'yicha) —
     # kun boshlansa (sana o'zgargan bo'lsa) 0 dan boshlaymiz.
-    raw = await repo.kv_get("hourly_cumulative")
+    raw = await repo.kv_get(kv_key)
     prev = json.loads(raw) if raw else {}
     if prev.get("date") != today_str:
         prev = {"date": today_str, "qty": 0, "revenue": 0, "payout": 0,
@@ -429,7 +481,7 @@ async def hourly_report(bot: Bot) -> None:
         })
 
     # Yangi jamini saqlaymiz — keyingi soat shundan farqni hisoblaydi
-    await repo.kv_set("hourly_cumulative", json.dumps({
+    await repo.kv_set(kv_key, json.dumps({
         "date": today_str, "qty": cur_qty, "revenue": cur_revenue,
         "payout": cur_payout, "count": cur_count, "sku": cur_sku,
     }))
@@ -459,6 +511,7 @@ async def hourly_report(bot: Bot) -> None:
             log.warning("Soatlik rasm chizilmadi: %s", e)
 
     text = (
+        f"{_owner_label(account_key)}"
         f"🕐 <b>Soatlik sotuv — {title}</b>\n\n"
         f"📥 Buyurtmalar soni: <b>{delta_count}</b>\n"
         f"📦 Sotilgan tovarlar soni: <b>{delta_qty}</b>\n"
@@ -466,8 +519,7 @@ async def hourly_report(bot: Bot) -> None:
         f"🏦 Chiqarishga: <b>{report.fmt(delta_payout)}</b> so'm"
     )
 
-    for a in admins:
-        uid = a["telegram_id"]
+    for uid in recipients:
         try:
             if img:
                 await bot.send_photo(
@@ -478,10 +530,11 @@ async def hourly_report(bot: Bot) -> None:
         except Exception as e:
             log.warning("Soatlik hisobot yuborilmadi (%s): %s", uid, e)
 
-    log.info("Soatlik hisobot %d adminga yuborildi (%s)", len(admins), title)
+    log.info("Soatlik hisobot %d ta qabul qiluvchiga yuborildi (%s)",
+             len(recipients), title)
 
 
-async def check_fbo_invoices(bot: Bot) -> None:
+async def check_fbo_invoices(bot: Bot, account_key: str | None = None) -> None:
     """
     FBO yuk xatlarining holatini tekshiradi. Yangi holat "qabul
     qilingan"ga o'zgargan bo'lsa, adminlarga BIR MARTA xabar beradi.
@@ -490,13 +543,18 @@ async def check_fbo_invoices(bot: Bot) -> None:
     uchun — faqat holat O'ZGARGANDA (yoki birinchi marta ACCEPTED
     holatida topilganda) xabar ketadi.
     """
-    admins = [
-        e for e in await repo.list_employees() if e["role"] == repo.ROLE_ADMIN
-    ]
-    if not admins:
+    if account_key:
+        set_account(account_key)
+
+    recipients = await _recipients(account_key, include_group=False)
+    if not recipients:
         return
 
     from app.integrations.uzum import uzum
+
+    # Holat identifikatorlari egasi bilan prefikslanadi — ikki egasining
+    # akt raqamlari bir-biriga aralashmasligi uchun.
+    prefix = f"{account_key or 'main'}:"
 
     try:
         invoices, _diag = await uzum.get_fbo_invoices()
@@ -505,7 +563,7 @@ async def check_fbo_invoices(bot: Bot) -> None:
         return
 
     for inv in invoices:
-        inv_id = str(inv["id"])
+        inv_id = prefix + str(inv["id"])
         is_accepted = (inv.get("status_value") or "").upper() == "ACCEPTED"
 
         prev_status = await repo.get_fbo_invoice_status(inv_id)
@@ -514,6 +572,7 @@ async def check_fbo_invoices(bot: Bot) -> None:
         if is_accepted and not already_notified:
             diff = inv["total_to_stock"] - inv["total_accepted"]
             text = (
+                f"{_owner_label(account_key)}"
                 f"✅ <b>Yuk xati № {inv['number']} qabul qilindi!</b>\n\n"
                 f"🏪 {inv['shop_name']}\n"
                 f"📤 Jo'natilgan: {inv['total_to_stock']} dona\n"
@@ -522,9 +581,9 @@ async def check_fbo_invoices(bot: Bot) -> None:
             if diff > 0:
                 text += f"\n⚠️ Farq: <b>{diff} dona</b> yo'qolgan yoki rad etilgan"
 
-            for a in admins:
+            for uid in recipients:
                 try:
-                    await bot.send_message(a["telegram_id"], text)
+                    await bot.send_message(uid, text)
                 except Exception:
                     pass
 
@@ -545,7 +604,7 @@ async def check_fbo_invoices(bot: Bot) -> None:
 LOW_STOCK_THRESHOLD = 5  # shundan kam qolsa — ogohlantirish
 
 
-async def check_product_state(bot: Bot) -> None:
+async def check_product_state(bot: Bot, account_key: str | None = None) -> None:
     """
     Uzum'dagi mahsulotlarni tekshiradi va UCH xil o'zgarishni
     aniqlaydi, adminlarga xabar beradi:
@@ -557,13 +616,18 @@ async def check_product_state(bot: Bot) -> None:
     Har biri faqat HOLAT O'ZGARGANDA yuboriladi — har tekshiruvda
     qayta-qayta emas.
     """
+    if account_key:
+        set_account(account_key)
+
     from app.integrations.uzum import uzum
 
-    admins = [
-        e for e in await repo.list_employees() if e["role"] == repo.ROLE_ADMIN
-    ]
-    if not admins:
+    recipients = await _recipients(account_key, include_group=False)
+    if not recipients:
         return
+
+    # SKU identifikatorlari egasi bilan prefikslanadi — ikki egasining
+    # SKU'lari bir-biriga aralashmasligi uchun.
+    prefix = f"{account_key or 'main'}:"
 
     try:
         stats = await uzum.get_product_stats()
@@ -572,7 +636,7 @@ async def check_product_state(bot: Bot) -> None:
         return
 
     for s in stats:
-        sku_id = str(s.get("sku_id") or s["sku"])
+        sku_id = prefix + str(s.get("sku_id") or s["sku"])
         prev = await repo.get_sku_state(sku_id)
         prev = prev or {"blocked": 0, "paid_storage": 0, "low_stock": 0}
 
@@ -585,6 +649,7 @@ async def check_product_state(bot: Bot) -> None:
         # --- 1. Kam qoldiq ---
         if is_low and not prev["low_stock"]:
             text = (
+                f"{_owner_label(account_key)}"
                 f"⚠️ <b>Ostatkani to'ldiring</b>\n"
                 f"Yaxshi sotilayotgan tovar Uzum omborida kam qolmoqda\n\n"
                 f"🛍 Do'kon aydisi: {s['shop_id']}\n"
@@ -596,15 +661,16 @@ async def check_product_state(bot: Bot) -> None:
                 f"FBO Yuborishga: {s['pending_qty']}\n"
                 f"FBSda qoldi: {s['fbs_qty']}"
             )
-            for a in admins:
+            for uid in recipients:
                 try:
-                    await bot.send_message(a["telegram_id"], text)
+                    await bot.send_message(uid, text)
                 except Exception:
                     pass
 
         # --- 2. Sotuvga chiqdi (blokdan chiqdi) ---
         if prev["blocked"] and not s["blocked"]:
             text = (
+                f"{_owner_label(account_key)}"
                 f"🎉 <b>Tovar sotuvga chiqdi</b>\n"
                 f"Statusi: 💰 Sotuvda\n\n"
                 f"🛍 Do'kon aydisi: {s['shop_id']}\n"
@@ -613,15 +679,16 @@ async def check_product_state(bot: Bot) -> None:
                 f"SKU: {s['sku']}\n"
                 f"Nomi: {s['name']}"
             )
-            for a in admins:
+            for uid in recipients:
                 try:
-                    await bot.send_message(a["telegram_id"], text)
+                    await bot.send_message(uid, text)
                 except Exception:
                     pass
 
         # --- 3. Pullik saqlashga o'tdi ---
         if s["paid_storage"] and not prev["paid_storage"]:
             text = (
+                f"{_owner_label(account_key)}"
                 f"⚠️ <b>SKU pulli saqlashga o'tdi</b>\n\n"
                 f"🛍 Do'kon aydisi: {s['shop_id']}\n"
                 f"Nomi: {s['shop_name']}\n\n"
@@ -632,9 +699,9 @@ async def check_product_state(bot: Bot) -> None:
                 f"💵 Donasiga to'lov: {s['storage_price_item']} so'm\n"
                 f"Pullik saqlashdagi tovar soni: {s['storage_qty']}"
             )
-            for a in admins:
+            for uid in recipients:
                 try:
-                    await bot.send_message(a["telegram_id"], text)
+                    await bot.send_message(uid, text)
                 except Exception:
                     pass
 

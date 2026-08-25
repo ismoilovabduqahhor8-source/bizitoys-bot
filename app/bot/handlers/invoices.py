@@ -19,6 +19,7 @@ from aiogram.types import (
     Message,
 )
 
+from app.bot.handlers import account_switch
 from app.db import repo
 from app.integrations.base import ApiError
 from app.integrations.uzum import uzum
@@ -114,7 +115,9 @@ async def cb_akt_from_fbs(callback: CallbackQuery) -> None:
 
 @router.message(Command("aktlar"))
 @router.message(F.text == "📋 Aktlar")
-async def cmd_invoices(message: Message) -> None:
+async def cmd_invoices(message: Message, employee: dict | None = None) -> None:
+    if employee and await account_switch.ensure_account(message, employee, "aktlar"):
+        return
     await _list_invoices(message, all_statuses=False)
 
 
@@ -358,3 +361,8 @@ async def cb_akt_labels(callback: CallbackQuery, employee: dict, bot: Bot) -> No
             )
         except Exception:
             pass
+
+
+# Ko'p egasi bo'lgan foydalanuvchiga tanlash tugmasi ko'rsatilgach,
+# shu funksiyalar chaqiriladi (account_switch).
+account_switch.register("aktlar", "invoices", "cmd_invoices", wants_employee=False)

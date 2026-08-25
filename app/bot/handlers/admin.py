@@ -12,7 +12,8 @@ from app import VERSION
 from app.config import settings
 from app.db import repo
 from app.integrations.billz import billz
-from app.integrations.uzum import uzum
+from app.integrations.uzum import get_client, uzum
+from app.services import accounts
 
 router = Router(name="admin")
 
@@ -39,8 +40,13 @@ async def cmd_employees(message: Message) -> None:
         uname = f" (@{p['username']})" if p["username"] else ""
         row = att.get(p["telegram_id"])
         mark = repo.ATT_LABELS.get(row["status"], "") if row else "⬜"
+        acct = p.get("account_key") or ""
+        acct_label = ""
+        if acct:
+            a = accounts.by_name(acct)
+            acct_label = f" · 🏪 {a.name if a else acct}"
         lines.append(
-            f"{role_label} {p['full_name']}{uname}\n"
+            f"{role_label} {p['full_name']}{uname}{acct_label}\n"
             f"     <code>{p['telegram_id']}</code> · {mark}"
         )
     await message.answer("\n".join(lines))
@@ -196,8 +202,16 @@ async def cmd_health(message: Message) -> None:
     if settings.uzum_mock:
         lines.append("Uzum: 🧪 soxta ma'lumot (kalit kiritilmagan)")
     else:
-        ok = await uzum.check_token()
-        lines.append(f"Uzum API: {'✅ ishlayapti' if ok else '❌ xato'}")
+        for a in settings.uzum_accounts:
+            if settings.mock_mode or not a.token:
+                lines.append(f"Uzum · {a.name}: 🧪 TEST")
+                continue
+            try:
+                ok = await get_client(a.key).check_token()
+            except Exception as e:
+                ok = False
+            icon = "✅ ishlayapti" if ok else "❌ xato"
+            lines.append(f"Uzum · {a.name}: {icon}")
 
     from app.integrations.ai import ai
     if not ai.enabled:
@@ -262,4 +276,60 @@ async def cmd_change_role(message: Message) -> None:
     await message.answer(
         f"✅ <b>{person['full_name']}</b> endi "
         f"{repo.ROLE_LABELS[roles[role_word]]}"
+    )
+
+
+@router.message(Command("egasi"))
+async def cmd_set_account(message: Message) -> None:
+    """Xodimni do'kon egasiga biriktiradi: /egasi 123456789 Abduqahhor
+
+    «-» berilsa — biriktirish olib tashlanadi (xodim hammasini ko'radi).
+    """
+    parts = (message.text or "").split(maxsplit=2)
+    target_id = None
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_id = message.reply_to_message.from_user.id
+        name_arg = parts[1] if len(parts) > 1 else ""
+    elif len(parts) >= 2 and parts[1].lstrip("-").isdigit():
+        target_id = int(parts[1])
+        name_arg = parts[2] if len(parts) > 2 else ""
+    else:
+        name_arg = ""
+
+    if target_id is None:
+        names = " · ".join(a.name for a in accounts.all_accounts())
+        await message.answer(
+            "<b>Xodimni do'kon egasiga biriktirish</b>\n\n"
+            f"<code>/egasi 123456789 {accounts.all_accounts()[0].name}</code>\n"
+            "yoki xabarga javob berib: <code>/egasi Abduqahhor</code>\n\n"
+            f"Mavjud egasi: <b>{names}</b>\n"
+            "<code>/egasi 123456789 -</code> — biriktirishni olib tashlash "
+            "(xodim hammasini ko'radi)"
+        )
+        return
+
+    person = await repo.get_employee(target_id)
+    if not person:
+        await message.answer("❌ Bunday xodim ro'yxatda yo'q. Avval qo'shing.")
+        return
+
+    if name_arg in ("-", "—", "hech"):
+        await repo.set_employee_account(target_id, None)
+        await message.answer(
+            f"✅ <b>{person['full_name']}</b> endi barcha do'konlarni ko'radi."
+        )
+        return
+
+    acct = accounts.by_name(name_arg) if name_arg else None
+    if not acct:
+        await message.answer(
+            f"❌ «{name_arg}» nomli do'kon egasi topilmadi.\n"
+            f"Mavjud: {', '.join(a.name for a in accounts.all_accounts())}"
+        )
+        return
+
+    await repo.set_employee_account(target_id, acct.key)
+    await message.answer(
+        f"✅ <b>{person['full_name']}</b> endi faqat "
+        f"<b>{acct.name}</b> do'konlarini ko'radi."
     )
