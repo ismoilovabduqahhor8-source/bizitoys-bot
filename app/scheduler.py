@@ -303,6 +303,4 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     log.info("  • moliyaviy hisobot:         %s (adminlarga, kechagi kun)", settings.money_report_at)
     log.info("  • soatlik hisobot:           08:00-23:00, har soat (adminlarga)")
     log.info("  • FBO qabul kuzatuvi:        har 20 daqiqada")
-    log.info("  • hisobotlar:                %s va %s",
-             settings.morning_report_at, settings.evening_report_at)
     return sched

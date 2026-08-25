@@ -164,7 +164,7 @@ class Settings:
     # Google Gemini (bepul): aistudio.google.com -> Get API key
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
     gemini_model: str = field(
-        default_factory=lambda: _env("GEMINI_MODEL", "gemini-2.5-flash")
+        default_factory=lambda: _env("GEMINI_MODEL", "gemini-3.6-flash")
     )
     # Make.com stsenariysining webhook manzili
     make_ai_webhook: str = field(default_factory=lambda: _env("MAKE_AI_WEBHOOK"))
