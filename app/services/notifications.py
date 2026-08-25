@@ -547,6 +547,81 @@ async def hourly_report(bot: Bot, account_key: str | None = None) -> None:
              len(recipients), title)
 
 
+async def daily_ai_briefing(bot: Bot, account_key: str | None = None) -> None:
+    """
+    Kunlik AI xulosasi — adminlarga ertalab, biznes muammolarini AI
+    tomonidan izohlangan holda.
+
+    Ikki bosqich: avval analytics.find_problems() ODDIY HISOB bilan
+    muammolarni topadi (aniq raqamlar), keyin AI ularni izohlaydi va
+    bugun nimadan boshlash kerakligini aytadi. AI ulanmagan bo'lsa —
+    xabar umuman yuborilmaydi (majburiy emas, faqat qulaylik uchun).
+    """
+    from app.integrations.ai import ai
+    from app.services import analytics
+
+    if not ai.enabled:
+        return
+    if account_key:
+        set_account(account_key)
+
+    recipients = await _recipients(account_key, include_group=False)
+    if not recipients:
+        return
+
+    try:
+        res = await analytics.find_problems(days=7)
+    except Exception as e:
+        log.warning("Kunlik AI xulosasi: tahlil qilinmadi — %s", e)
+        return
+
+    if not res["muammolar"]:
+        return  # muammo yo'q — bezovta qilmaymiz
+
+    try:
+        comment = await ai.analyze(res)
+    except Exception as e:
+        log.warning("Kunlik AI xulosasi: AI javob bermadi — %s", e)
+        return
+
+    if not comment:
+        return
+
+    text = f"{_owner_label(account_key)}☀️ <b>Kunlik AI xulosasi</b>\n\n{comment}"
+    for uid in recipients:
+        try:
+            await bot.send_message(uid, text)
+        except Exception as e:
+            log.warning("AI xulosasi yuborilmadi (%s): %s", uid, e)
+
+    log.info("Kunlik AI xulosasi %d ta qabul qiluvchiga yuborildi", len(recipients))
+
+
+async def weekly_trend_report(bot: Bot, account_key: str | None = None) -> None:
+    """Haftalik savdo trendi — har dushanba ertalab, adminlarga."""
+    from app.services import report
+
+    if account_key:
+        set_account(account_key)
+
+    recipients = await _recipients(account_key, include_group=False)
+    if not recipients:
+        return
+
+    try:
+        cmp = await report.compare_periods("week")
+    except Exception as e:
+        log.warning("Haftalik trend tayyorlanmadi: %s", e)
+        return
+
+    text = f"{_owner_label(account_key)}{report.as_trend_text(cmp)}"
+    for uid in recipients:
+        try:
+            await bot.send_message(uid, text)
+        except Exception as e:
+            log.warning("Haftalik trend yuborilmadi (%s): %s", uid, e)
+
+
 async def check_fbo_invoices(bot: Bot, account_key: str | None = None) -> None:
     """
     FBO yuk xatlarining holatini tekshiradi. Yangi holat "qabul

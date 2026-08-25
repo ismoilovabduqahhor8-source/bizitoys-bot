@@ -349,6 +349,57 @@ async def cmd_analysis(message: Message, employee: dict) -> None:
         await thinking.delete()
 
 
+@router.message(Command("trend"))
+@router.message(F.text == "📈 Trend")
+async def cmd_trend(message: Message, employee: dict) -> None:
+    """
+    Haftalik/oylik savdo trendi — joriy davr oldingi davr bilan solishtiriladi.
+
+    /trend        -> so'nggi 7 kun vs oldingi 7 kun
+    /trend oy     -> bu oy vs o'tgan oy (xuddi shuncha kun)
+    """
+    if await account_switch.ensure_account(message, employee, "trend"):
+        return
+    from app.services import report
+
+    kind = "week"
+    parts = (message.text or "").lower().split()
+    if len(parts) > 1 and parts[1] in ("oy", "month", "oylik"):
+        kind = "month"
+
+    wait = await message.answer("⏳ Trend hisoblanmoqda…")
+    try:
+        cmp = await report.compare_periods(kind)
+    except ApiError as e:
+        await wait.edit_text(f"⚠️ Ma'lumot olinmadi.\n<code>{e}</code>")
+        return
+    await wait.edit_text(report.as_trend_text(cmp))
+
+
+@router.message(Command("xodim_tahlil"))
+@router.message(F.text == "👷 Xodimlar tahlili")
+async def cmd_employee_performance(message: Message, employee: dict) -> None:
+    """
+    Xodimlar samaradorligi — kim tezroq ishlaydi, kim ko'proq kechikadi.
+
+    Faqat mahalliy bazadan (task_log, order_assignments) hisoblanadi —
+    Uzum so'ralmaydi, shuning uchun tez ishlaydi. Faqat admin ko'radi.
+    """
+    if employee["role"] != repo.ROLE_ADMIN:
+        await message.answer("🔒 Bu bo'lim faqat admin uchun.")
+        return
+
+    from app.services import analytics
+
+    days = 7
+    parts = (message.text or "").split()
+    if len(parts) > 1 and parts[1].isdigit():
+        days = min(int(parts[1]), 90)
+
+    res = await analytics.employee_performance(days=days)
+    await message.answer(analytics.employee_performance_as_text(res))
+
+
 @router.message(Command("bloklangan"))
 @router.message(F.text == "🚫 Bloklangan")
 async def cmd_blocked(message: Message, employee: dict | None = None) -> None:
@@ -399,3 +450,4 @@ account_switch.register("sanoq", "stock", "cmd_scheme_counts", wants_employee=Fa
 account_switch.register("hisobot", "stock", "cmd_report")
 account_switch.register("tahlil", "stock", "cmd_analysis")
 account_switch.register("bloklangan", "stock", "cmd_blocked", wants_employee=False)
+account_switch.register("trend", "stock", "cmd_trend")

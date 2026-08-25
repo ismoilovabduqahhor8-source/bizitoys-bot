@@ -158,7 +158,8 @@ sifatida ishlayveradi (hech narsa o'zgarmaydi).
 | `/shosh` | Muddati kam qolganlar + FBO top sotuvlar + kam qoldiq |
 | `/report` | Qisqa hisobot: nechtasi tayyor, nechtasi yo'q |
 | `/hisobot` | Moliyaviy hisobot (bugun / kecha / bu oy / o'tgan oy) |
-| `/tahlil` | Biznes muammolarini topish (AI izohi bilan) |
+| `/tahlil` | Biznes muammolarini topish — zarar, tugash, o'lik qoldiq, narx/chegirma tavsiyasi (AI izohi bilan) |
+| `/trend` yoki `/trend oy` | Savdo trendi: joriy davr vs oldingi davr (o'sish/pasayish %) |
 | `/holat` | Bo'limlar bo'yicha buyurtmalar soni |
 | `/qoldiq` | Uzum FBS ombor qoldig'i |
 | `/bloklangan` | Uzum tomonidan bloklangan tovarlar |
@@ -187,8 +188,28 @@ Buyruq yozish shart emas — oddiy savol ham tushuniladi:
 | `/soramoq` · `/bor <id>` · `/yoq <id>` | Davomat so'rash / belgilash |
 | `/postavka` | Postavka ochish (PVZ va vaqt tanlab) |
 | `/egasi 123456789 Abduqahhor` | Xodimni do'kon egasiga biriktirish (faqat o'sha egasini ko'radi) |
+| `/xodim_tahlil` yoki `/xodim_tahlil 30` | Xodimlar samaradorligi: kim tezroq ishladi, kim kechikdi |
 | `/health` | Tizim va API holati |
 | `/moliyamaydon` | Moliya API maydonlarini ko'rish (tashxis) |
+
+---
+
+## 🤖 Sun'iy intellekt (AI) imkoniyatlari
+
+AI ulangan bo'lsa (`AI_PROVIDER=gemini` + `GEMINI_API_KEY`), quyidagilar ham ishlaydi:
+
+| Imkoniyat | Qanday ishlaydi |
+|---|---|
+| **Erkin savol/amal** | Oddiy tilda yozing: «QR kodlar kerak», «hodimlar ro'yxati», «Aziz rolini yig'uvchi qil» — bot tushunib, mos amalni bajaradi |
+| **Ovozli buyruq** | Yozish o'rniga ovozli xabar yuboring — bot matnga aylantirib, xuddi shu tarzda javob beradi |
+| **Rasm orqali qidiruv** | Mahsulot rasmini yuboring — AI tavsiflab, bugungi buyurtmalar orasidan mos kelganini topadi |
+| **Kunlik AI xulosasi** | Har kuni ertalab (moliyaviy hisobotdan 15 daq keyin) adminlarga muammolar bo'yicha qisqa AI tahlili yuboriladi (faqat muammo bo'lsa) |
+| **Narx/chegirma tavsiyasi** | `/tahlil` da zarardagi tovar uchun necha % narx oshirish, o'lik qoldiq uchun necha % chegirma kerakligi ko'rsatiladi |
+| **Xodim samaradorligi** | `/xodim_tahlil` — kim tezroq ishlayapti, kim ko'proq kechikayapti (mahalliy bazadan, tez ishlaydi) |
+| **Haftalik trend** | Har dushanba ertalab avtomatik: bu hafta vs o'tgan hafta solishtiruvi |
+
+Barcha raqamlar (foyda, marja, kechikish soni) **kod tomonidan hisoblanadi** — AI faqat
+tushuntiradi va tavsiflaydi, hech qachon o'z raqamini o'ylab topmaydi.
 
 ---
 
@@ -227,6 +248,8 @@ Bu TZ'ning 2-bo'limidagi talab — va xavfsizlikning eng muhim qismi.
 | Soatlik hisobot (adminlarga) | — | 08:00–23:00, har soat |
 | FBO yuk xatlari kuzatuvi | — | har 20 daq. |
 | Mahsulot holati (kam qoldiq / blok / pullik saqlash) | — | har 30 daq. |
+| Kunlik AI xulosasi (AI ulangan va muammo bo'lsa) | — | moliyaviy hisobotdan 15 daq keyin |
+| Haftalik savdo trendi | — | har dushanba 09:00 |
 
 Hisobot guruhga **va** adminlarga shaxsiy yuboriladi.
 Kechikkan buyurtma bo'lsa — mas'ul xodimga shaxsiy eslatma boradi.
@@ -303,10 +326,11 @@ DigitalOcean — oyiga ~$4–6.
 ## 🧠 Keyinchalik qo'shish mumkin
 
 - **Excel hisobot** — `/export` buyrug'i oylik hisobotni `.xlsx` qilib yuboradi
-- **Xodimlar reytingi** — `task_log` jadvalida hamma harakat saqlanadi, undan
-  «kim tez ishlaydi» statistikasi chiqadi
 - **PostgreSQL** — xodim 20 tadan oshsa, SQLite'dan ko'chish kerak bo'ladi
 - **Web-dashboard** — bazadagi ma'lumotni brauzerda ko'rsatish
+- **Billz → Uzum mahsulot eksporti** — Billz'dagi 700+ mahsulotdan Uzum'da
+  yo'qlarini Excel qilib chiqarish (hozircha Uzum API'da mahsulot yaratish
+  endpointi yo'q — qo'lda yuklash uchun tayyorlangan ro'yxat kerak bo'ladi)
 
 ---
 

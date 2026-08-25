@@ -275,6 +275,76 @@ async def mark_reminded(order_id: str) -> None:
         await db.close()
 
 
+async def employee_activity(since: str) -> list[dict[str, Any]]:
+    """
+    Har bir xodimning berilgan sanadan beri faoliyati (task_log +
+    order_assignments asosida, faqat mahalliy baza — Uzum so'ralmaydi):
+
+        ish_soni       — nechta TURLI buyurtmada harakat qilgan
+        harakat_soni   — jami necha marta holat o'zgartirgan
+        kechikish_soni — nechta buyurtmada eslatma olgan (sekin ishlagan)
+        ortacha_daq    — buyurtma biriktirilgandan birinchi harakatigacha
+                         o'rtacha necha daqiqa o'tgan (tezlik ko'rsatkichi)
+    """
+    db = await _conn()
+    try:
+        async with db.execute(
+            """
+            SELECT employee_id,
+                   COUNT(DISTINCT order_id) AS ish_soni,
+                   COUNT(*) AS harakat_soni
+              FROM task_log
+             WHERE employee_id IS NOT NULL AND created_at >= ?
+             GROUP BY employee_id
+            """,
+            (since,),
+        ) as cur:
+            activity = {r["employee_id"]: dict(r) for r in await cur.fetchall()}
+
+        async with db.execute(
+            """
+            SELECT employee_id, COUNT(*) AS kechikish_soni
+              FROM order_assignments
+             WHERE employee_id IS NOT NULL AND reminded_at IS NOT NULL
+               AND created_at >= ?
+             GROUP BY employee_id
+            """,
+            (since,),
+        ) as cur:
+            late = {r["employee_id"]: r["kechikish_soni"] for r in await cur.fetchall()}
+
+        async with db.execute(
+            """
+            SELECT t.employee_id,
+                   AVG((julianday(t.first_action) - julianday(a.created_at)) * 24 * 60)
+                       AS ortacha_daq
+              FROM (
+                  SELECT order_id, employee_id, MIN(created_at) AS first_action
+                    FROM task_log
+                   WHERE employee_id IS NOT NULL AND created_at >= ?
+                   GROUP BY order_id, employee_id
+              ) t
+              JOIN order_assignments a ON a.order_id = t.order_id
+             GROUP BY t.employee_id
+            """,
+            (since,),
+        ) as cur:
+            speed = {r["employee_id"]: r["ortacha_daq"] for r in await cur.fetchall()}
+
+        out: list[dict[str, Any]] = []
+        for emp_id, row in activity.items():
+            out.append({
+                "employee_id": emp_id,
+                "ish_soni": row["ish_soni"],
+                "harakat_soni": row["harakat_soni"],
+                "kechikish_soni": late.get(emp_id, 0),
+                "ortacha_daq": round(speed.get(emp_id) or 0, 1),
+            })
+        return out
+    finally:
+        await db.close()
+
+
 # ------------------------------------------------------------------
 #  OMBOR CHEGARALARI
 # ------------------------------------------------------------------

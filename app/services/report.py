@@ -283,6 +283,112 @@ async def build_period(kind: str) -> dict[str, Any]:
     return await build_between(start, end, title)
 
 
+# ------------------------------------------------------------------
+#  DAVRLARNI SOLISHTIRISH (TREND)
+# ------------------------------------------------------------------
+def _pct_change(cur: float, prev: float) -> float | None:
+    """O'sish/pasayish %. Avvalgi davr 0 bo'lsa — solishtirib bo'lmaydi."""
+    if prev <= 0:
+        return None
+    return (cur - prev) / prev * 100
+
+
+async def compare_periods(kind: str = "week") -> dict[str, Any]:
+    """
+    Joriy davrni oldingi, TENG UZUNLIKDAGI davr bilan solishtiradi.
+
+    kind="week"  -> so'nggi 7 kun vs undan oldingi 7 kun
+    kind="month" -> shu oy boshidan hozirgacha vs o'tgan oyning
+                    xuddi shuncha kunlik boshlanishi
+
+    Solishtirish ADOLATLI bo'lishi uchun ikkala davr HAM BIR XIL
+    uzunlikda olinadi (masalan "bu oy 25 kun" bo'lsa, o'tgan oydan
+    ham faqat birinchi 25 kun olinadi) — aks holda to'liq oy bilan
+    yarim oyni solishtirish chalg'ituvchi bo'lardi.
+    """
+    now = datetime.now(TZ)
+
+    if kind == "month":
+        cur_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        days_so_far = (now - cur_start).days + 1
+        prev_month_end = cur_start
+        prev_start = (cur_start - timedelta(days=1)).replace(day=1)
+        prev_end = prev_start + timedelta(days=days_so_far)
+        cur_title, prev_title = "Bu oy", "O'tgan oy (xuddi shuncha kun)"
+    else:
+        cur_start = (now - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        prev_start = cur_start - timedelta(days=7)
+        prev_end = cur_start
+        cur_title, prev_title = "So'nggi 7 kun", "Undan oldingi 7 kun"
+
+    cur_rep = await build_between(cur_start, now, cur_title)
+    prev_rep = await build_between(prev_start, prev_end, prev_title)
+
+    cur_t, prev_t = cur_rep["total"], prev_rep["total"]
+    return {
+        "kind": kind,
+        "cur_title": cur_title,
+        "prev_title": prev_title,
+        "cur": cur_t,
+        "prev": prev_t,
+        "qty_change": _pct_change(cur_t["qty"], prev_t["qty"]),
+        "revenue_change": _pct_change(cur_t["revenue"], prev_t["revenue"]),
+        "profit_change": _pct_change(cur_t["profit"], prev_t["profit"]),
+        "top_gainers": _top_movers(cur_rep["items"], prev_rep["items"], reverse=True),
+        "top_losers": _top_movers(cur_rep["items"], prev_rep["items"], reverse=False),
+    }
+
+
+def _top_movers(
+    cur_items: list[dict[str, Any]], prev_items: list[dict[str, Any]], reverse: bool
+) -> list[dict[str, Any]]:
+    """Sotuvi eng ko'p o'sgan/kamaygan tovarlar (nom bo'yicha solishtirilib)."""
+    prev_by_name = {i["name"].strip().upper(): i for i in prev_items}
+    rows = []
+    for i in cur_items:
+        key = i["name"].strip().upper()
+        prev = prev_by_name.get(key)
+        prev_qty = prev["qty"] if prev else 0
+        diff = i["qty"] - prev_qty
+        if diff == 0:
+            continue
+        rows.append({"tovar": i["name"][:40], "diff": diff, "hozir": i["qty"], "avval": prev_qty})
+    rows.sort(key=lambda r: r["diff"], reverse=reverse)
+    return rows[:5]
+
+
+def as_trend_text(cmp: dict[str, Any]) -> str:
+    """Trend solishtiruvini Telegram xabari uchun formatlaydi."""
+    def arrow(v: float | None) -> str:
+        if v is None:
+            return "—"
+        if v > 0:
+            return f"📈 +{v:.1f}%"
+        if v < 0:
+            return f"📉 {v:.1f}%"
+        return "➖ 0%"
+
+    lines = [
+        f"📊 <b>Trend: {cmp['cur_title']} vs {cmp['prev_title']}</b>",
+        "",
+        f"📦 Sotilgan: <b>{fmt(cmp['cur']['qty'])}</b> ({arrow(cmp['qty_change'])})",
+        f"💰 Daromad: <b>{fmt(cmp['cur']['revenue'])}</b> so'm ({arrow(cmp['revenue_change'])})",
+        f"📈 Foyda: <b>{fmt(cmp['cur']['profit'])}</b> so'm ({arrow(cmp['profit_change'])})",
+    ]
+
+    if cmp["top_gainers"]:
+        lines += ["", "<b>🔝 Eng ko'p o'sgan</b>"]
+        for r in cmp["top_gainers"]:
+            lines.append(f"   {r['tovar']}: {r['avval']} → {r['hozir']} (+{r['diff']})")
+
+    if cmp["top_losers"]:
+        lines += ["", "<b>⚠️ Eng ko'p kamaygan</b>"]
+        for r in cmp["top_losers"]:
+            lines.append(f"   {r['tovar']}: {r['avval']} → {r['hozir']} ({r['diff']})")
+
+    return "\n".join(lines)
+
+
 def as_summary_text(rep: dict[str, Any]) -> str:
     """
     Qisqa, toza hisobot matni.

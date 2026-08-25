@@ -17,11 +17,13 @@ def main_menu(role: str) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="📦 FBS"), KeyboardButton(text="🔥 Shoshilinch")],
         [KeyboardButton(text="📊 Hisobot"), KeyboardButton(text="🔍 Tahlil")],
-        [KeyboardButton(text="🔢 FBS / FBO"), KeyboardButton(text="📉 Uzum qoldiq")],
+        [KeyboardButton(text="📈 Trend"), KeyboardButton(text="🔢 FBS / FBO")],
+        [KeyboardButton(text="📉 Uzum qoldiq")],
         [KeyboardButton(text="🚫 Bloklangan")],
     ]
     if role == repo.ROLE_ADMIN:
-        rows.append([KeyboardButton(text="👥 Xodimlar"), KeyboardButton(text="⚙️ Sozlamalar")])
+        rows.append([KeyboardButton(text="👥 Xodimlar"), KeyboardButton(text="👷 Xodimlar tahlili")])
+        rows.append([KeyboardButton(text="⚙️ Sozlamalar")])
     else:
         rows.append([KeyboardButton(text="✅ Keldim")])
 

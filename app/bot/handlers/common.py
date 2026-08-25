@@ -99,6 +99,8 @@ async def cmd_help(message: Message, employee: dict | None) -> None:
             "/remove_employee &lt;id&gt; — o'chirish\n"
             "/set_min &lt;SKU&gt; &lt;son&gt; — minimal qoldiq chegarasi\n"
             "/postavka — postavka ochish (PVZ va vaqt) 🚚\n"
+            "/xodim_tahlil — xodimlar samaradorligi 👷\n"
+            "/trend — haftalik/oylik savdo trendi 📈\n"
             "/health — API'lar ishlayaptimi tekshirish"
         )
     await message.answer(base)
@@ -120,22 +122,41 @@ async def free_question(message: Message, employee: dict | None) -> None:
     if len(text) < 4:
         return
 
-    # --- AMAL (intent) aniqlansa — mos buyruq bajariladi ---
+    await _handle_free_text(text, message, employee)
+
+
+async def _handle_free_text(
+    text: str, message: Message, employee: dict, thinking: Message | None = None
+) -> None:
+    """
+    Erkin matnga (yozma yoki ovozdan aylantirilgan) javob beradi.
+
+    Avval AMAL (intent) tekshiriladi, topilmasa AI'ga yuboriladi.
+    `thinking` — allaqachon ko'rsatilgan "kutish" xabari bo'lsa (masalan
+    ovozli xabar tayyorlanayotganda), o'sha tahrirlanadi.
+    """
     from app.services import ai_intent
 
     intent = ai_intent.detect(text)
     if intent:
+        if thinking:
+            try:
+                await thinking.delete()
+            except Exception:
+                pass
         if await _run_intent(intent, text, message, employee):
             return
 
     if not ai.enabled:
-        await message.answer(
-            "Bu savolni tushunmadim.\n\n"
-            "Buyruqlar ro'yxati: /help"
-        )
+        msg = "Bu savolni tushunmadim.\n\nBuyruqlar ro'yxati: /help"
+        if thinking:
+            await thinking.edit_text(msg)
+        else:
+            await message.answer(msg)
         return
 
-    thinking = await message.answer("🤔 O'ylayapman…")
+    if thinking is None:
+        thinking = await message.answer("🤔 O'ylayapman…")
 
     # Agar yaqinda /tahlil ishlatilgan bo'lsa — savol o'sha muammolar
     # haqida bo'lishi ehtimoli katta. Shunda AI ularni eslab turadi va
@@ -172,12 +193,112 @@ async def free_question(message: Message, employee: dict | None) -> None:
         )
 
 
+# ------------------------------------------------------------------
+#  OVOZLI XABAR -> matn -> yuqoridagi ERKIN SAVOL pipeline
+# ------------------------------------------------------------------
+@router.message(F.voice)
+async def free_voice(message: Message, employee: dict | None) -> None:
+    """Xodim tugma bosish o'rniga ovozli xabar yuborsa ham ishlaydi."""
+    if employee is None:
+        return
+    if not ai.enabled:
+        await message.answer(
+            "🎙 Ovozli xabarlarni tushunish uchun AI ulanmagan.\n"
+            "Buyruqlar ro'yxati: /help"
+        )
+        return
+
+    thinking = await message.answer("🎙 Ovozli xabar eshitilmoqda…")
+    try:
+        file = await message.bot.get_file(message.voice.file_id)
+        buf = await message.bot.download_file(file.file_path)
+        audio_bytes = buf.read()
+    except Exception as e:
+        await thinking.edit_text(f"⚠️ Ovoz yuklab olinmadi.\n<code>{e}</code>")
+        return
+
+    text = await ai.transcribe_voice(audio_bytes, mime="audio/ogg")
+    if not text:
+        await thinking.edit_text(
+            "⚠️ Ovozli xabarni tushunmadim. Matn bilan qayta yozib ko'ring."
+        )
+        return
+
+    await thinking.edit_text(f"🎙 <i>«{text}»</i>")
+    await _handle_free_text(text, message, employee)
+
+
+# ------------------------------------------------------------------
+#  RASM -> mahsulot tavsifi -> nom bo'yicha mos buyurtma/tovar qidirish
+# ------------------------------------------------------------------
+@router.message(F.photo)
+async def free_photo(message: Message, employee: dict | None) -> None:
+    """Xodim mahsulot rasmini yuborsa, AI tavsiflab nomini topishga harakat qiladi."""
+    if employee is None:
+        return
+    if not ai.enabled:
+        return  # oddiy rasm bo'lishi mumkin — jim o'tkazamiz
+
+    thinking = await message.answer("🖼 Rasm tekshirilmoqda…")
+    try:
+        photo = message.photo[-1]
+        file = await message.bot.get_file(photo.file_id)
+        buf = await message.bot.download_file(file.file_path)
+        image_bytes = buf.read()
+    except Exception as e:
+        await thinking.edit_text(f"⚠️ Rasm yuklab olinmadi.\n<code>{e}</code>")
+        return
+
+    desc = await ai.describe_image(image_bytes, mime="image/jpeg")
+    if not desc:
+        await thinking.edit_text(
+            "⚠️ Rasmni tushunmadim. Mahsulot nomini yozib so'rang."
+        )
+        return
+
+    try:
+        items = await order_service.orders_for_user(employee)
+    except Exception:
+        items = []
+
+    hint = desc.lower()
+    matches = []
+    for o in items:
+        for it in (o.get("items") or []):
+            name = (it.get("name") or "").lower()
+            if any(word in name for word in hint.split() if len(word) > 3):
+                matches.append({
+                    "buyurtma": o.get("public_id"),
+                    "tovar": it.get("name"),
+                    "soni": it.get("qty"),
+                })
+
+    lines = [f"🖼 <b>Rasmda:</b> {desc}", ""]
+    if matches:
+        lines.append("<b>Mos kelgan buyurtmalar:</b>")
+        seen = set()
+        for m in matches[:8]:
+            key = (m["buyurtma"], m["tovar"])
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(f"• {m['tovar']} ×{m['soni']} — <code>{m['buyurtma']}</code>")
+    else:
+        lines.append("<i>Bugungi buyurtmalar orasida mos tovar topilmadi.</i>")
+
+    await thinking.edit_text("\n".join(lines))
+
+
 async def _run_intent(
     intent: str, text: str, message: Message, employee: dict
 ) -> bool:
     """Aniqlangan amalni bajaradi. Qaytaradi: True — bajarildi."""
     if intent == "employees":
         await _show_employees(message)
+        return True
+    if intent == "xodim_tahlil":
+        from app.bot.handlers.stock import cmd_employee_performance
+        await cmd_employee_performance(message, employee)
         return True
     if intent == "yorliqlar":
         from app.bot.handlers.orders import cmd_labels_bulk
@@ -206,6 +327,10 @@ async def _run_intent(
     if intent == "postavka":
         from app.bot.handlers.postavka import cmd_postavka
         await cmd_postavka(message, employee)
+        return True
+    if intent == "trend":
+        from app.bot.handlers.stock import cmd_trend
+        await cmd_trend(message, employee)
         return True
     if intent == "rol":
         return await _change_role(text, message, employee)

@@ -267,6 +267,25 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         id="hourly_report",
     )
 
+    # --- Kunlik AI xulosasi (adminlarga, moliyaviy hisobotdan 15 daq keyin) ---
+    # AI ulanmagan bo'lsa funksiya ichida jim o'tkaziladi.
+    _rh, _rm = _parse_hhmm(settings.money_report_at, (8, 0))
+    _briefing_dt = (datetime(2000, 1, 1, _rh, _rm) + timedelta(minutes=15))
+    sched.add_job(
+        _per_account(notif.daily_ai_briefing),
+        CronTrigger(hour=_briefing_dt.hour, minute=_briefing_dt.minute, timezone=tz),
+        args=[bot],
+        id="daily_ai_briefing",
+    )
+
+    # --- Haftalik savdo trendi (har dushanba ertalab) ---
+    sched.add_job(
+        _per_account(notif.weekly_trend_report),
+        CronTrigger(day_of_week="mon", hour=9, minute=0, timezone=tz),
+        args=[bot],
+        id="weekly_trend",
+    )
+
     # --- FBO yuk xatlari qabul qilinganini kuzatish (har 20 daqiqada) ---
     sched.add_job(
         _per_account(notif.check_fbo_invoices),
@@ -303,4 +322,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     log.info("  • moliyaviy hisobot:         %s (adminlarga, kechagi kun)", settings.money_report_at)
     log.info("  • soatlik hisobot:           08:00-23:00, har soat (adminlarga)")
     log.info("  • FBO qabul kuzatuvi:        har 20 daqiqada")
+    log.info("  • kunlik AI xulosasi:        %02d:%02d (AI ulangan bo'lsa)",
+              _briefing_dt.hour, _briefing_dt.minute)
+    log.info("  • haftalik trend:            dushanba 09:00")
     return sched

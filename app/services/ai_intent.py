@@ -25,6 +25,10 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     # Rol o'zgartirish — eng aniq, birinchi tekshiriladi
     ("rol", ("rolini", "rolni", "roli", "rol o'zgartir", "rol o'zgarsin",
              "rolini o'zgartir", "rol o'zgar", "roli o'zgarsin")),
+    # Xodim samaradorligi — "xodimlar" dan OLDIN tekshiriladi (aniqrog'i)
+    ("xodim_tahlil", ("kim tez ishladi", "kim yaxshi ishladi", "kim kechikdi",
+                      "kim ko'p kechikdi", "xodimlar samaradorligi",
+                      "xodim tahlili", "eng yaxshi xodim", "kim faol")),
     # Xodimlar ro'yxati
     ("employees", ("hodimlar", "hodim", "xodimlar", "kimlar ishlayapti",
                    "kimlar ishlaydi", "jamoa", "employees", "xodimlar ro'yxati")),
@@ -44,6 +48,9 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                 "ish qolgan", "ish qolyapti")),
     # Postavka
     ("postavka", ("postavka", "pvz", "punkt")),
+    # Trend / davrlarni solishtirish
+    ("trend", ("trend", "o'sdimi", "o'sishi", "solishtir", "o'tgan haftaga",
+              "o'tgan oyga", "qiyoslash")),
 ]
 
 # So'z boshlanishida xato aniqlanmasligi uchun istisnolar

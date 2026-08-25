@@ -191,6 +191,50 @@ async def main() -> None:
     check("rol parse",
           lambda: ai_intent.parse_role_change("aziz rolini yig'uvchi qil")
           == ("aziz", "yiguvchi"))
+    check("trend -> trend",
+          lambda: intent_ok("bu hafta o'tgan haftaga solishtir", "trend"))
+    check("kim kechikdi -> xodim_tahlil",
+          lambda: intent_ok("kim ko'p kechikdi", "xodim_tahlil"))
+
+    print("\n14) Narx va chegirma tavsiyalari")
+    losing_items = [
+        {"name": "Zarar tovar", "sku": "Z-1", "qty": 5, "payout": 100,
+         "cost": 150, "has_cost": True, "revenue": 120},
+        {"name": "Yaxshi tovar", "sku": "Y-1", "qty": 5, "payout": 200,
+         "cost": 100, "has_cost": True, "revenue": 220},
+    ]
+    price_sugg = analytics.find_price_suggestions(losing_items)
+    check("find_price_suggestions: zarardagi tovar topildi",
+          lambda: price_sugg and len(price_sugg["royxat"]) == 1)
+    check("find_price_suggestions: oshirish foizi > 0",
+          lambda: price_sugg["royxat"][0]["oshirish_foiz"] > 0)
+
+    dead_stats = [
+        {"name": "O'lik tovar", "sku": "D-1", "sold_7d": 0, "fbo_qty": 60},
+        {"name": "Faol tovar", "sku": "A-1", "sold_7d": 10, "fbo_qty": 5},
+    ]
+    disc_sugg = analytics.find_discount_suggestions(dead_stats)
+    check("find_discount_suggestions: o'lik qoldiq topildi",
+          lambda: disc_sugg and disc_sugg["royxat"][0]["chegirma_foiz"] == 30)
+
+    print("\n15) Xodim samaradorligi")
+    people = await repo.list_employees()
+    if people:
+        emp_id = people[0]["telegram_id"]
+        await repo.ensure_order("PERF-1", repo.today_str())
+        await repo.assign_order("PERF-1", emp_id)
+        await repo.set_local_status("PERF-1", "packed", emp_id)
+    perf = await analytics.employee_performance(days=7)
+    check("employee_performance: natija ro'yxat",
+          lambda: isinstance(perf["xodimlar"], list))
+    check("employee_performance_as_text ishlaydi",
+          lambda: analytics.employee_performance_as_text(perf))
+
+    print("\n16) Trend (davrlarni solishtirish)")
+    cmp = await report.compare_periods("week")
+    check("compare_periods: kalitlar bor",
+          lambda: "cur" in cmp and "prev" in cmp and "qty_change" in cmp)
+    check("as_trend_text ishlaydi", lambda: report.as_trend_text(cmp))
 
 
 if __name__ == "__main__":

@@ -285,6 +285,169 @@ def find_blocked(stats: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 # ------------------------------------------------------------------
+#  7. NARX TAVSIYALARI
+# ------------------------------------------------------------------
+MIN_PROFIT_MARGIN = 10.0  # % — bundan kam bo'lsa "past marja" hisoblanadi
+
+
+def find_price_suggestions(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """
+    Zarardagi va past-marjali tovarlar uchun ANIQ narx tavsiyasi.
+
+    Hisob-kitob:
+      • zarardagi tovar: kerakli narx oshirish % = (tannarx - chiqarishga) /
+        chiqarishga * 100 — shuncha oshirilsa hech bo'lmasa "0" ga chiqadi,
+        real hayotda ozgina yuqoriroq tavsiya qilinadi (+5% zaxira bilan).
+      • o'lik qoldiq (bu yerga alohida uzatiladi, ombor ma'lumotidan):
+        harakatga keltirish uchun chegirma % tavsiyasi.
+
+    Bu ham ODDIY HISOB — AI raqam o'ylab topmaydi, faqat tushuntiradi.
+    """
+    rows = []
+    for i in items:
+        if not i.get("has_cost") or i["qty"] <= 0 or i["payout"] <= 0:
+            continue
+        margin = (i["payout"] - i["cost"]) / i["payout"] * 100
+        if margin >= MIN_PROFIT_MARGIN:
+            continue
+        # Zarur oshirish %: chiqarishga necha % o'sishi kerak, marja
+        # MIN_PROFIT_MARGIN ga yetishi uchun (chiqarishga narxga bog'liq,
+        # lekin sotuvchi narxni oshirsa Uzum to'lovi ham shunga mos o'sadi
+        # deb taxmin qilinadi — oddiy chiziqli baholash).
+        target_payout = i["cost"] / (1 - MIN_PROFIT_MARGIN / 100)
+        need_pct = max((target_payout - i["payout"]) / i["payout"] * 100, 0)
+        rows.append({
+            "tovar": i["name"][:40],
+            "sku": i["sku"],
+            "hozirgi_marja": round(margin, 1),
+            "oshirish_foiz": round(need_pct, 1),
+        })
+
+    if not rows:
+        return None
+
+    rows.sort(key=lambda r: r["hozirgi_marja"])
+    return {
+        "kod": "narx_tavsiya",
+        "daraja": 2,
+        "sarlavha": f"Narx ko'tarish tavsiya etiladi: {len(rows)} ta",
+        "royxat": rows[:8],
+        "tavsiya": (
+            "Bu tovarlarning foyda marjasi past yoki manfiy — "
+            f"narxni ko'rsatilgan foizga oshirsangiz, kamida "
+            f"{MIN_PROFIT_MARGIN:.0f}% marjaga chiqadi."
+        ),
+    }
+
+
+def find_discount_suggestions(stats: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """
+    O'lik qoldiqni harakatga keltirish uchun chegirma % tavsiyasi.
+
+    Qancha ko'p kun sotilmagan bo'lsa (bu yerda proksi sifatida
+    qoldiq miqdori ishlatiladi — qancha katta bo'lsa shuncha
+    jiddiyroq chegirma kerak), shuncha katta chegirma tavsiya qilinadi.
+    """
+    dead = [
+        s for s in stats
+        if s["sold_7d"] == 0 and s["fbo_qty"] >= DEAD_STOCK_MIN_QTY
+    ]
+    if not dead:
+        return None
+
+    def _discount_for(qty: int) -> int:
+        if qty >= 50:
+            return 30
+        if qty >= 30:
+            return 20
+        return 10
+
+    dead.sort(key=lambda s: -s["fbo_qty"])
+    rows = [
+        {
+            "tovar": s["name"][:40],
+            "sku": s["sku"],
+            "qoldiq": s["fbo_qty"],
+            "chegirma_foiz": _discount_for(s["fbo_qty"]),
+        }
+        for s in dead[:8]
+    ]
+    return {
+        "kod": "chegirma_tavsiya",
+        "daraja": 3,
+        "sarlavha": f"Chegirma tavsiya etiladi: {len(rows)} ta",
+        "royxat": rows,
+        "tavsiya": (
+            "7 kundan beri sotilmagan tovarlar — ko'rsatilgan chegirma "
+            "bilan sotuvni tezlashtirish mumkin."
+        ),
+    }
+
+
+# ------------------------------------------------------------------
+#  8. XODIM SAMARADORLIGI
+# ------------------------------------------------------------------
+async def employee_performance(days: int = 7) -> dict[str, Any]:
+    """
+    Har bir xodimning oxirgi `days` kundagi ishlash tezligi va sifati.
+
+    Faqat MAHALLIY bazadan (task_log, order_assignments) — Uzum
+    so'ralmaydi, shuning uchun tez ishlaydi.
+    """
+    from app.db import repo
+
+    now = datetime.now(TZ)
+    since = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    rows = await repo.employee_activity(since)
+    people = {p["telegram_id"]: p for p in await repo.list_employees()}
+
+    result = []
+    for r in rows:
+        emp = people.get(r["employee_id"])
+        if not emp:
+            continue
+        result.append({
+            "ism": emp["full_name"],
+            "rol": repo.ROLE_LABELS.get(emp["role"], emp["role"]),
+            "ish_soni": r["ish_soni"],
+            "kechikish_soni": r["kechikish_soni"],
+            "ortacha_daq": r["ortacha_daq"],
+        })
+
+    # Tezroq (kam daqiqa) va kamroq kechikish — yaxshi ko'rsatkich
+    result.sort(key=lambda r: (r["kechikish_soni"], r["ortacha_daq"]))
+
+    return {"davr_kun": days, "xodimlar": result}
+
+
+def employee_performance_as_text(res: dict[str, Any]) -> str:
+    people = res["xodimlar"]
+    if not people:
+        return (
+            f"👷 <b>Xodimlar samaradorligi — oxirgi {res['davr_kun']} kun</b>\n\n"
+            "Hali ma'lumot yo'q."
+        )
+
+    lines = [
+        f"👷 <b>Xodimlar samaradorligi — oxirgi {res['davr_kun']} kun</b>",
+        "",
+    ]
+    medals = ["🥇", "🥈", "🥉"]
+    for idx, p in enumerate(people):
+        mark = medals[idx] if idx < 3 else "•"
+        lines.append(f"{mark} <b>{p['ism']}</b> ({p['rol']})")
+        lines.append(f"   Bajargan: <b>{p['ish_soni']}</b> ta buyurtma")
+        if p["ortacha_daq"]:
+            lines.append(f"   O'rtacha javob tezligi: <b>{p['ortacha_daq']:.0f}</b> daqiqa")
+        if p["kechikish_soni"]:
+            lines.append(f"   ⚠️ Kechikish: <b>{p['kechikish_soni']}</b> marta")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------
 #  UMUMIY YIG'UVCHI
 # ------------------------------------------------------------------
 async def find_problems(days: int = 7) -> dict[str, Any]:
@@ -331,6 +494,8 @@ async def find_problems(days: int = 7) -> dict[str, Any]:
         (find_dead_stock, stats),
         (find_late_orders, orders),
         (find_missing_cost, items),
+        (find_price_suggestions, items),
+        (find_discount_suggestions, stats),
     ):
         if not arg:
             continue
@@ -447,6 +612,20 @@ def as_text(res: dict[str, Any], limit: int = 5) -> str:
             )
             for r in p["royxat"][:3]:
                 lines.append(f"   • {r['tovar']}")
+
+        elif p["kod"] == "narx_tavsiya":
+            for r in p["royxat"][:4]:
+                lines.append(
+                    f"   • {r['tovar']}: marja {r['hozirgi_marja']}% → "
+                    f"narxni <b>+{r['oshirish_foiz']}%</b> oshirish kerak"
+                )
+
+        elif p["kod"] == "chegirma_tavsiya":
+            for r in p["royxat"][:4]:
+                lines.append(
+                    f"   • {r['tovar']}: {r['qoldiq']} dona → "
+                    f"<b>-{r['chegirma_foiz']}%</b> chegirma tavsiya"
+                )
 
         lines.append(f"   <i>→ {p['tavsiya']}</i>")
         lines.append("")

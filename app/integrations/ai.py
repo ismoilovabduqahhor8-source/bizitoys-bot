@@ -315,5 +315,114 @@ class AIClient:
         )
         return await self._send(SYSTEM_ANALYST, prompt, max_tokens=1500)
 
+    async def transcribe_voice(self, audio_bytes: bytes, mime: str = "audio/ogg") -> str | None:
+        """
+        Ovozli xabarni matnga aylantiradi (faqat Gemini qo'llab-quvvatlaydi).
+
+        Xodim tugma bosish o'rniga ovozli xabar yuboradi — bot uni
+        matnga aylantirib, xuddi yozma savol kabi ishlov beradi.
+        """
+        if settings.ai_provider != "gemini" or not settings.gemini_api_key:
+            log.info("Ovozli xabar: faqat Gemini provayder qo'llab-quvvatlaydi")
+            return None
+
+        import base64
+
+        key = settings.gemini_api_key
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{settings.gemini_model}:generateContent?key={key}"
+        )
+        b64 = base64.b64encode(audio_bytes).decode()
+        try:
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                resp = await client.post(
+                    url,
+                    json={
+                        "contents": [{
+                            "role": "user",
+                            "parts": [
+                                {"text": "Shu audio xabarni faqat o'zbek tilida "
+                                         "matnga o'gir. Boshqa hech narsa yozma, "
+                                         "faqat aytilgan gapni."},
+                                {"inline_data": {"mime_type": mime, "data": b64}},
+                            ],
+                        }],
+                        "generationConfig": {"maxOutputTokens": 300, "temperature": 0.1},
+                    },
+                )
+        except Exception as e:
+            log.warning("Ovoz yuborilmadi: %s", e)
+            return None
+
+        if resp.status_code != 200:
+            log.warning("Ovoz xatosi: HTTP %s %s", resp.status_code, resp.text[:200])
+            return None
+
+        try:
+            data = resp.json()
+            cand = (data.get("candidates") or [{}])[0]
+            parts = cand.get("content", {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+            return text.strip() or None
+        except Exception as e:
+            log.warning("Ovoz javobi o'qilmadi: %s", e)
+            return None
+
+    async def describe_image(self, image_bytes: bytes, mime: str = "image/jpeg") -> str | None:
+        """
+        Rasmni tavsiflaydi (faqat Gemini qo'llab-quvvatlaydi).
+
+        Xodim mahsulot rasmini yuborsa, AI uni qisqa tavsiflaydi —
+        keyin shu tavsif bo'yicha nom mos kelishi qidiriladi.
+        """
+        if settings.ai_provider != "gemini" or not settings.gemini_api_key:
+            log.info("Rasm tahlili: faqat Gemini provayder qo'llab-quvvatlaydi")
+            return None
+
+        import base64
+
+        key = settings.gemini_api_key
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{settings.gemini_model}:generateContent?key={key}"
+        )
+        b64 = base64.b64encode(image_bytes).decode()
+        try:
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                resp = await client.post(
+                    url,
+                    json={
+                        "contents": [{
+                            "role": "user",
+                            "parts": [
+                                {"text": "Bu rasmda qanday o'yinchoq yoki mahsulot "
+                                         "borligini o'zbek tilida 3-5 so'z bilan "
+                                         "qisqa ayt (masalan: 'yumshoq ayiqcha', "
+                                         "'lego konstruktor', 'mashina o'yinchoq')."},
+                                {"inline_data": {"mime_type": mime, "data": b64}},
+                            ],
+                        }],
+                        "generationConfig": {"maxOutputTokens": 100, "temperature": 0.2},
+                    },
+                )
+        except Exception as e:
+            log.warning("Rasm yuborilmadi: %s", e)
+            return None
+
+        if resp.status_code != 200:
+            log.warning("Rasm xatosi: HTTP %s %s", resp.status_code, resp.text[:200])
+            return None
+
+        try:
+            data = resp.json()
+            cand = (data.get("candidates") or [{}])[0]
+            parts = cand.get("content", {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+            return text.strip() or None
+        except Exception as e:
+            log.warning("Rasm javobi o'qilmadi: %s", e)
+            return None
+
 
 ai = AIClient()
