@@ -215,8 +215,27 @@ class AIClient:
 
         try:
             data = resp.json()
-            parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts") or []
-            text = "".join(p.get("text", "") for p in parts)
+            cand = (data.get("candidates") or [{}])[0]
+            parts = cand.get("content", {}).get("parts") or []
+
+            # MUHIM: Gemini 2.5+/3.x — fikrlaydigan (reasoning) model.
+            # U javobdan oldin ICHKI fikrlashni ham yozadi — bu qismlar
+            # "thought": true belgisi bilan keladi. Ularni JAVOBGA
+            # qo'shish MUMKIN EMAS (avval xato: fikrlash matni chiqib
+            # qolardi). Faqat haqiqiy javob matnini olamiz.
+            text = "".join(
+                p.get("text", "") for p in parts if not p.get("thought")
+            )
+
+            # Agar javob to'liq bo'lmasa (token tugadi) — logga yozamiz,
+            # keyingi safar budjetni ko'paytirishni bilamiz.
+            reason = cand.get("finishReason") or ""
+            if reason and reason != "STOP":
+                log.warning(
+                    "Gemini javobi to'liq emas: finishReason=%s (matn %d belgi)",
+                    reason, len(text),
+                )
+
             return text.strip() or None
         except Exception as e:
             log.warning("Gemini javobi o'qilmadi: %s", e)
@@ -270,7 +289,9 @@ class AIClient:
             f"{json.dumps(data, ensure_ascii=False, indent=1, default=str)}\n\n"
             f"XODIM SAVOLI: {question}"
         )
-        return await self._send(SYSTEM, prompt)
+        # max_tokens katta: Gemini 3.x fikrlash uchun ham token sarflaydi,
+        # kichik budjetda javob kesilib qolardi.
+        return await self._send(SYSTEM, prompt, max_tokens=1024)
 
     async def analyze(
         self, problems: dict[str, Any], question: str | None = None
@@ -292,7 +313,7 @@ class AIClient:
             "Shu muammolarni tahlil qil: qaysi biri eng muhim va nega? "
             "Ular o'zaro bog'liqmi? Bugun nimadan boshlash kerak?"
         )
-        return await self._send(SYSTEM_ANALYST, prompt, max_tokens=800)
+        return await self._send(SYSTEM_ANALYST, prompt, max_tokens=1500)
 
 
 ai = AIClient()
