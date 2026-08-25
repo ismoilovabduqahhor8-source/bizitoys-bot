@@ -203,22 +203,10 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     tz = ZoneInfo(settings.timezone)
     sched = AsyncIOScheduler(timezone=tz)
 
-    mh, mm = _parse_hhmm(settings.morning_report_at, (9, 30))
-    eh, em = _parse_hhmm(settings.evening_report_at, (18, 30))
-
-    # --- Kunlik hisobotlar (har egasi uchun alohida) ---
-    sched.add_job(
-        _per_account(notif.daily_digest),
-        CronTrigger(hour=mh, minute=mm, timezone=tz),
-        args=[bot, "🌅 Ertalabki hisobot"],
-        id="morning_report",
-    )
-    sched.add_job(
-        _per_account(notif.daily_digest),
-        CronTrigger(hour=eh, minute=em, timezone=tz),
-        args=[bot, "🌆 Kechqurungi hisobot"],
-        id="evening_report",
-    )
+    # --- Kunlik hisobotlar O'CHIRILDI (foydalanuvchi talabi) ---
+    # 🌅 Ertalabki (09:30) va 🌇 Kechqurungi (18:30) avtomatik hisobot
+    # endi UMUMAN yuborilmaydi — guruhga ham, adminlarga ham.
+    # Agar kerak bo'lsa, /report buyrug'i orqali qo'lda so'raladi.
 
     # --- Yangi buyurtmalarni kuzatish (eng muhimi) ---
     sched.add_job(
