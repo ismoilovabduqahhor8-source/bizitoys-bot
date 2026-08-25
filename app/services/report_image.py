@@ -43,8 +43,7 @@ def _fonts(size_title: int, size_head: int, size_body: int, size_small: int):
         if os.path.exists(regular):
             b = bold if os.path.exists(bold) else regular
             return {
-                "title": ImageFont.truetype(regular, size_title, index=0)
-                if False else ImageFont.truetype(b, size_title),
+                "title": ImageFont.truetype(b, size_title),
                 "head": ImageFont.truetype(b, size_head),
                 "body": ImageFont.truetype(regular, size_body),
                 "body_b": ImageFont.truetype(b, size_body),

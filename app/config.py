@@ -110,8 +110,6 @@ class Settings:
     # Ish vaqti — tunda bezovta qilmaslik uchun (soat)
     work_from: int = field(default_factory=lambda: _env_int("WORK_FROM", 9))
     work_to: int = field(default_factory=lambda: _env_int("WORK_TO", 20))
-    # Yangi buyurtma necha daqiqada bir tekshirilsin
-    new_order_check_min: int = field(default_factory=lambda: _env_int("NEW_ORDER_CHECK_MIN", 3))
     stock_check_at: str = field(default_factory=lambda: _env("STOCK_CHECK_AT", "10:00"))
     # Sklad xodimlariga yig'ish ro'yxati yuboriladigan vaqt
     sklad_list_at: str = field(default_factory=lambda: _env("SKLAD_LIST_AT", "11:00"))

@@ -533,7 +533,6 @@ async def cb_accept(callback: CallbackQuery, employee: dict, bot: Bot) -> None:
 # ------------------------------------------------------------------
 async def _open_invoices(callback: CallbackQuery) -> None:
     """«📋 Aktlarni ochish» — postavka aktlari ro'yxati."""
-    """«📋 Aktlarni ochish» — postavka aktlari ro'yxati."""
     from app.bot.handlers.invoices import _akt_card, akt_buttons
 
     wait = await callback.message.answer("⏳ Aktlar olinmoqda…")

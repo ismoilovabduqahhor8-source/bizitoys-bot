@@ -135,11 +135,21 @@ Botda `/health` yozing — u ikkala API ham javob berayotganini aytadi.
 
 | Buyruq | Nima qiladi |
 |---|---|
+| `/fbs` | Asosiy bo'lim: Yangilar · Yig'ishda · Postavkada |
 | `/orders` | Bugungi buyurtmalar + holat o'zgartirish tugmalari |
+| `/shosh` | Muddati kam qolganlar + FBO top sotuvlar + kam qoldiq |
 | `/report` | Qisqa hisobot: nechtasi tayyor, nechtasi yo'q |
-| `/stock` | Ombor qoldig'i |
-| `/low` | Qoldig'i kam mahsulotlar |
-| `/top` yoki `/top 30` | Eng ko'p sotilganlar (7 yoki 30 kun) |
+| `/hisobot` | Moliyaviy hisobot (bugun / kecha / bu oy / o'tgan oy) |
+| `/tahlil` | Biznes muammolarini topish (AI izohi bilan) |
+| `/holat` | Bo'limlar bo'yicha buyurtmalar soni |
+| `/qoldiq` | Uzum FBS ombor qoldig'i |
+| `/bloklangan` | Uzum tomonidan bloklangan tovarlar |
+| `/fboyuk` | FBO yuk xatlari (zelyoniy koridor Excel) |
+| `/yorliqlar` | Barcha buyurtmalar uchun QR/yorliq PDF |
+| `/aktlar` | Postavka aktlari, mahsulotlar va PDF |
+| `/top` yoki `/top 30` | Eng ko'p sotilganlar (Billz) |
+| `/stock` / `/low` | Ombor qoldig'i / kam qolganlar (Billz) |
+| `/keldim` · `/davomat` | Bugun ishda ekanini belgilash, kim ishda |
 | `/id` | O'z Telegram ID'sini bilish |
 
 Buyruq yozish shart emas — oddiy savol ham tushuniladi:
@@ -149,15 +159,17 @@ Buyruq yozish shart emas — oddiy savol ham tushuniladi:
 
 | Buyruq | Nima qiladi |
 |---|---|
-| `/add_employee 123456789 Aziz Karimov` | Xodim qo'shish |
+| `/add_sklad` / `/add_yiguvchi` / `/add_haydovchi` | Rol bilan qo'shish — xabarga javob berib yoki `ID Ism` bilan |
+| `/add_employee 123456789 Aziz Karimov` | Umumiy xodim qo'shish |
 | `/add_admin 123456789 Ism` | Admin qo'shish |
+| `/rol` | Mavjud xodimning rolini o'zgartirish |
 | `/employees` | Ro'yxatni ko'rish |
 | `/remove_employee 123456789` | Tizimdan chiqarish |
 | `/set_min BT-1001 10` | Mahsulot uchun minimal qoldiq chegarasi |
+| `/soramoq` · `/bor <id>` · `/yoq <id>` | Davomat so'rash / belgilash |
+| `/postavka` | Postavka ochish (PVZ va vaqt tanlab) |
 | `/health` | Tizim va API holati |
-| `/yesterday` yoki `/yesterday 2026-07-22` | Kechagi savdo hisoboti (test uchun) |
-| `/yesterday_excel` yoki `/yesterday_excel 2026-07-22` | Excel formatida yuklab olish |
-| `/yesterday_image` yoki `/yesterday_image 2026-07-22` | Rasm formatida yuklab olish |
+| `/moliyamaydon` | Moliya API maydonlarini ko'rish (tashxis) |
 
 ---
 
@@ -186,12 +198,16 @@ Bu TZ'ning 2-bo'limidagi talab — va xavfsizlikning eng muhim qismi.
 
 | Vazifa | Sozlama | Standart |
 |---|---|---|
-| Kechagi savdo hisoboti | `DAILY_SALES_AT` | 08:00 |
+| Kunlik moliyaviy hisobot (kechagi kun) | `MONEY_REPORT_AT` | 08:00 |
 | Ertalabki hisobot | `MORNING_REPORT_AT` | 09:30 |
 | Kechqurungi hisobot | `EVENING_REPORT_AT` | 18:30 |
-| Kechikkan vazifa tekshiruvi | `LATE_CHECK_EVERY_MIN` | har 60 daq. |
-| Ombor tekshiruvi | `STOCK_CHECK_AT` | 10:00 |
-| «Kechikdi» chegarasi | `LATE_AFTER_HOURS` | 4 soat |
+| Yangi buyurtma tekshiruvi | `NEW_ORDER_CHECK_MIN` | har 5 daq. |
+| «Ish bor» eslatmasi | `NUDGE_EVERY_MIN` | har 90 daq. |
+| Muddat tekshiruvi | `LATE_CHECK_EVERY_MIN` | har 60 daq. |
+| Skladga yig'ish ro'yxati | `SKLAD_LIST_AT` | 11:00 |
+| Soatlik hisobot (adminlarga) | — | 08:00–23:00, har soat |
+| FBO yuk xatlari kuzatuvi | — | har 20 daq. |
+| Mahsulot holati (kam qoldiq / blok / pullik saqlash) | — | har 30 daq. |
 
 Hisobot guruhga **va** adminlarga shaxsiy yuboriladi.
 Kechikkan buyurtma bo'lsa — mas'ul xodimga shaxsiy eslatma boradi.

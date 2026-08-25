@@ -228,7 +228,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     )
 
     # --- Kunlik moliyaviy hisobot (adminlarga, kechagi to'liq kun) ---
-    rh, rm = _parse_hhmm(settings.money_report_at, (21, 0))
+    rh, rm = _parse_hhmm(settings.money_report_at, (8, 0))
     sched.add_job(
         notif.money_report,
         CronTrigger(hour=rh, minute=rm, timezone=tz),
