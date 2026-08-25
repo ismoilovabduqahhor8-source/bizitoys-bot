@@ -86,10 +86,13 @@ class AIClient:
 
         Provayderga qarab turli narsa kerak:
           anthropic — API kaliti
+          gemini    — Google API kaliti (bepul)
           make      — webhook manzili
         """
         if settings.ai_provider == "make":
             return bool(settings.make_ai_webhook)
+        if settings.ai_provider == "gemini":
+            return bool(settings.gemini_api_key)
         return bool(self.key)
 
     async def _send(
@@ -98,8 +101,9 @@ class AIClient:
         """
         Umumiy so'rov yuboruvchi.
 
-        Ikki provayderni qo'llab-quvvatlaydi:
+        Uch provayderni qo'llab-quvvatlaydi:
           anthropic — to'g'ridan-to'g'ri API (tez, bitta qadam)
+          gemini    — Google Gemini (BEPUL daraja bor)
           make      — Make.com webhook orqali (sekinroq, lekin Make'dagi
                       operatsiyalardan foydalanadi)
 
@@ -112,6 +116,8 @@ class AIClient:
 
         if settings.ai_provider == "make":
             return await self._send_via_make(system, prompt)
+        if settings.ai_provider == "gemini":
+            return await self._send_via_gemini(system, prompt, max_tokens)
         return await self._send_via_anthropic(system, prompt, max_tokens)
 
     async def _send_via_make(self, system: str, prompt: str) -> str | None:
@@ -166,6 +172,55 @@ class AIClient:
             pass
 
         return text
+
+    async def _send_via_gemini(
+        self, system: str, prompt: str, max_tokens: int
+    ) -> str | None:
+        """Google Gemini API'ga so'rov (bepul darajasi bor)."""
+        key = settings.gemini_api_key
+        if not key:
+            log.warning("AI_PROVIDER=gemini, lekin GEMINI_API_KEY kiritilmagan")
+            return None
+
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{settings.gemini_model}:generateContent?key={key}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=40.0) as client:
+                resp = await client.post(
+                    url,
+                    json={
+                        "system_instruction": {
+                            "parts": [{"text": system}]
+                        },
+                        "contents": [
+                            {"role": "user", "parts": [{"text": prompt}]}
+                        ],
+                        "generationConfig": {
+                            "maxOutputTokens": max_tokens,
+                            "temperature": 0.4,
+                        },
+                    },
+                )
+        except Exception as e:
+            log.warning("Gemini so'rovi yuborilmadi: %s", e)
+            return None
+
+        if resp.status_code != 200:
+            log.warning(
+                "Gemini xatosi: HTTP %s %s", resp.status_code, resp.text[:200]
+            )
+            return None
+
+        try:
+            data = resp.json()
+            parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts)
+            return text.strip() or None
+        except Exception as e:
+            log.warning("Gemini javobi o'qilmadi: %s", e)
+            return None
 
     async def _send_via_anthropic(
         self, system: str, prompt: str, max_tokens: int

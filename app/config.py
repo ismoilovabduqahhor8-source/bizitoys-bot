@@ -156,9 +156,15 @@ class Settings:
 
     # Qaysi AI provayder ishlatilsin:
     #   anthropic — to'g'ridan-to'g'ri Anthropic API (tez, kalit kerak)
+    #   gemini    — Google Gemini (BEPUL darajasi bor, aistudio.google.com)
     #   make      — Make.com webhook orqali (sekinroq, Make sozlamasi kerak)
     ai_provider: str = field(
         default_factory=lambda: (_env("AI_PROVIDER", "anthropic") or "anthropic").lower()
+    )
+    # Google Gemini (bepul): aistudio.google.com -> Get API key
+    gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
+    gemini_model: str = field(
+        default_factory=lambda: _env("GEMINI_MODEL", "gemini-2.5-flash")
     )
     # Make.com stsenariysining webhook manzili
     make_ai_webhook: str = field(default_factory=lambda: _env("MAKE_AI_WEBHOOK"))
